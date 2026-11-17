@@ -400,6 +400,14 @@ class BatteryUI : ApplicationContext
         };
         Refresh();
 
+        // memory: once a minute while the panel is closed, give unused memory back to Windows
+        trim.Interval = 60000;
+        trim.Tick += delegate { if (panel == null || !panel.Visible) TrimMemory(); };
+        trim.Start();
+        var first = new System.Windows.Forms.Timer { Interval = 15000 };
+        first.Tick += delegate { first.Stop(); first.Dispose(); TrimMemory(); };
+        first.Start();
+
         // updates: first check shortly after start, then every 6 hours
         updates.Interval = 30000;
         updates.Tick += delegate
@@ -466,6 +474,20 @@ class BatteryUI : ApplicationContext
     }
 
     readonly System.Windows.Forms.Timer updates = new System.Windows.Forms.Timer();
+    readonly System.Windows.Forms.Timer trim = new System.Windows.Forms.Timer();
+
+    static void TrimMemory()
+    {
+        try
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            SetProcessWorkingSetSize(System.Diagnostics.Process.GetCurrentProcess().Handle, new IntPtr(-1), new IntPtr(-1));
+        }
+        catch { }
+    }
+    [DllImport("kernel32.dll")] static extern bool SetProcessWorkingSetSize(IntPtr h, IntPtr min, IntPtr max);
     string reportStatus = "";
 
     // Settings > Report a problem: user describes it, we attach the device report and open a pre-filled GitHub issue.
@@ -853,7 +875,13 @@ class BatteryUI : ApplicationContext
         settingsView = false;
         hot = -1;
         watch.Stop();
-        if (panel != null && panel.Visible) panel.Visible = false;
+        if (panel != null && panel.Visible)
+        {
+            panel.Visible = false;
+            var t = new System.Windows.Forms.Timer { Interval = 2000 };
+            t.Tick += delegate { t.Stop(); t.Dispose(); if (panel == null || !panel.Visible) TrimMemory(); };
+            t.Start();
+        }
     }
 
     void WatchPanel()

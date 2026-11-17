@@ -15,7 +15,8 @@ static class AppleBuds
 
     static readonly object lk = new object();
     static readonly List<Adv> recent = new List<Adv>();
-    static BluetoothLEAdvertisementWatcher watcher;
+    // Kept as object so the Windows Runtime (Bluetooth LE) parts load only when AirPods are actually connected
+    static object watcher;
     static DateTime lastWanted = DateTime.MinValue;
 
     static bool IsApple(string name)
@@ -81,22 +82,30 @@ static class AppleBuds
     static void Start()
     {
         if (watcher != null) return;
-        try
-        {
-            var w = new BluetoothLEAdvertisementWatcher();
-            w.ScanningMode = BluetoothLEScanningMode.Passive;
-            w.Received += OnReceived;
-            w.Start();
-            watcher = w;
-        }
+        try { watcher = Ble.Start(); }
         catch { watcher = null; } // no Bluetooth LE / older Windows
     }
 
     static void Stop()
     {
-        try { if (watcher != null) watcher.Stop(); } catch { }
+        try { if (watcher != null) Ble.Stop(watcher); } catch { }
         watcher = null;
         lock (lk) recent.Clear();
+    }
+
+    // Everything that touches Windows Runtime types lives here, so it is only loaded on first use
+    static class Ble
+    {
+        public static object Start()
+        {
+            var w = new BluetoothLEAdvertisementWatcher();
+            w.ScanningMode = BluetoothLEScanningMode.Passive;
+            w.Received += OnReceived;
+            w.Start();
+            return w;
+        }
+
+        public static void Stop(object w) { ((BluetoothLEAdvertisementWatcher)w).Stop(); }
     }
 
     static void OnReceived(BluetoothLEAdvertisementWatcher s, BluetoothLEAdvertisementReceivedEventArgs e)
