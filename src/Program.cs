@@ -15,8 +15,8 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("BatteryRings")]
 [assembly: AssemblyCompany("BatteryRings")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.5.6.0")]
-[assembly: AssemblyFileVersion("1.5.6.0")]
+[assembly: AssemblyVersion("1.5.7.0")]
+[assembly: AssemblyFileVersion("1.5.7.0")]
 // Guvenlik: P/Invoke DLL'leri yalnizca System32'den yuklenir (exe'nin yanina konan sahte DLL calismaz)
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -112,7 +112,7 @@ static class Program
         t += "vendor tarama " + sw.ElapsedMilliseconds + " ms, " + v.Count + " cihaz" + Environment.NewLine;
         foreach (var f in v) t += "vendor " + f.Kind + " pil=" + f.Reading.Percent + Environment.NewLine;
         foreach (var f in GenericDevices.Read())
-            t += "genel " + f.Kind + " pil=" + f.Reading.Percent + (f.Reading.Text != null ? " (" + f.Reading.Text + ")" : "") + Environment.NewLine;
+            t += "genel " + f.Kind + " ad=" + f.Name + " sarj=" + f.Reading.Charging + " pil=" + f.Reading.Percent + (f.Reading.Text != null ? " (" + f.Reading.Text + ")" : "") + Environment.NewLine;
         return t;
     }
 

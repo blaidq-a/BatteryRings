@@ -605,7 +605,7 @@ static class Diagnostics
         {
             var shown = Shown != null ? Shown() : null;
             if (shown != null) foreach (var x in shown) sb.AppendLine("  " + x);
-            else foreach (var f in GenericDevices.Read()) sb.AppendLine("  " + f.Kind + "  " + f.Name + "  " + f.Reading.Percent + "%");
+            else foreach (var f in GenericDevices.Read()) sb.AppendLine("  " + f.Kind + "  " + (f.Id == "phonelink" ? "(Phone Link phone)" : f.Name) + "  " + f.Reading.Percent + "%");
         }
         catch { }
         return sb.ToString();

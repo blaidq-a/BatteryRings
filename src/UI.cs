@@ -13,7 +13,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-enum Kind { Headset, Mouse, Buds, Gamepad, Keyboard, Other }
+enum Kind { Headset, Mouse, Buds, Gamepad, Keyboard, Other, Phone }
 
 class Slot
 {
@@ -173,7 +173,7 @@ static class Look
     {
         if (kind == Kind.Buds) { Buds(g, box, c); return; }
         string ch = kind == Kind.Headset ? "\uE7F6" : kind == Kind.Mouse ? "\uE962" : kind == Kind.Gamepad ? "\uE7FC"
-                  : kind == Kind.Keyboard ? "\uE765" : "\uE702";
+                  : kind == Kind.Keyboard ? "\uE765" : kind == Kind.Phone ? "\uE8EA" : "\uE702";
         using (var fam = new FontFamily(IconFace))
         using (var path = new GraphicsPath())
         using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
@@ -205,7 +205,8 @@ static class Look
     }
 
     // Kucuk sarj simsegi (simge koseye)
-    public static void Bolt(Graphics g, PointF at, float h)
+    public static void Bolt(Graphics g, PointF at, float h) { Bolt(g, at, h, ChargeC); }
+    public static void Bolt(Graphics g, PointF at, float h, Color fill)
     {
         float w = h * 0.62f;
         var pts = new[] {
@@ -214,7 +215,7 @@ static class Look
             new PointF(at.X + w * 0.98f, at.Y + h * 0.38f), new PointF(at.X + w * 0.55f, at.Y + h * 0.38f) };
         using (var pen = new Pen(Light ? Color.White : Color.FromArgb(255, 20, 20, 20), 1.6f * K) { LineJoin = LineJoin.Round })
             g.DrawPolygon(pen, pts);
-        using (var br = new SolidBrush(ChargeC)) g.FillPolygon(br, pts);
+        using (var br = new SolidBrush(fill)) g.FillPolygon(br, pts);
     }
 
     public static Color Accent
@@ -410,7 +411,8 @@ class BatteryUI : ApplicationContext
         Diagnostics.Shown = delegate
         {
             var l = new List<string>();
-            foreach (var x in slots) if (x.Active) l.Add(x.RealKind + "  " + (x.RealName ?? x.Name) + "  " + x.Last.Percent + "%" + (x.Last.Charging ? " charging" : ""));
+            // a phone's name is often its owner's name, and reports are public: never include it
+            foreach (var x in slots) if (x.Active) l.Add(x.RealKind + "  " + (x.Id == "phonelink" ? "(Phone Link phone)" : x.RealName ?? x.Name) + "  " + x.Last.Percent + "%" + (x.Last.Charging ? " charging" : ""));
             return l;
         };
         Refresh();
@@ -1007,7 +1009,7 @@ class BatteryUI : ApplicationContext
         bool empty = !settingsView && devs.Count == 0;
 
         float hh = HeadH;
-        if (settingsView) hh += SetRowH * 4 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 56;
+        if (settingsView) hh += SetRowH * 5 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 56;
         else if (empty) hh += 64;
         else foreach (var s in devs) hh += Multi(s) ? MultiRowH : RowH;
         hh += 8;
@@ -1143,6 +1145,7 @@ class BatteryUI : ApplicationContext
             Toggle(g, f, L, R, ref y, null, "Open when hovering the icon", Settings.HoverOpen, delegate { Settings.HoverOpen = !Settings.HoverOpen; });
             Toggle(g, f, L, R, ref y, null, "Low battery alerts", Settings.Alerts, delegate { Settings.Alerts = !Settings.Alerts; });
             Toggle(g, f, L, R, ref y, null, "Install updates automatically", Settings.AutoUpdate, delegate { Settings.AutoUpdate = !Settings.AutoUpdate; });
+            Toggle(g, f, L, R, ref y, null, "Phone battery (Phone Link)", Settings.PhoneLink, delegate { Settings.PhoneLink = !Settings.PhoneLink; genericAt = DateTime.MinValue; Refresh(); });
 
             y += 10 * k;
             using (var br = new SolidBrush(sub))
@@ -1376,7 +1379,8 @@ class BatteryUI : ApplicationContext
         string t = text ?? Look.Pct(pct);
         float w = g.MeasureString(t, f, PointF.Empty, sf).Width;
         bool low = !chg && pct >= 0 && pct <= 15;
-        using (var br = new SolidBrush(pct < 0 ? sub : chg ? Look.ChargeC : low ? Look.LowC : fg)) g.DrawString(t, f, br, right - w, y, sf);
+        // charging: the number stays in the normal text colour, only the bolt is in the charge colour
+        using (var br = new SolidBrush(pct < 0 ? sub : low ? Look.LowC : fg)) g.DrawString(t, f, br, right - w, y, sf);
         if (chg && pct >= 0) Look.Bolt(g, new PointF(right - w - 10 * k, y + 2 * k), 11 * k);
     }
 
@@ -1440,6 +1444,7 @@ static class Settings
     public static bool HoverOpen { get { return Get("HoverOpen", true); } set { Set("HoverOpen", value); } }
     public static bool Alerts { get { return Get("Alerts", true); } set { Set("Alerts", value); } }
     public static bool AutoUpdate { get { return Get("AutoUpdate", true); } set { Set("AutoUpdate", value); } }
+    public static bool PhoneLink { get { return Get("PhoneLink", false); } set { Set("PhoneLink", value); } }
     static string theme; // cached: read many times per frame
     public static string Theme
     {
@@ -1501,8 +1506,8 @@ class DeviceEditor : Form
     public Kind Chosen;
     public bool Reset;
     readonly TextBox box = new TextBox();
-    static readonly Kind[] Kinds = { Kind.Headset, Kind.Buds, Kind.Mouse, Kind.Keyboard, Kind.Gamepad, Kind.Other };
-    static readonly string[] KindNames = { "Headset", "Earbuds", "Mouse", "Keyboard", "Controller", "Other" };
+    static readonly Kind[] Kinds = { Kind.Headset, Kind.Buds, Kind.Mouse, Kind.Keyboard, Kind.Gamepad, Kind.Phone, Kind.Other };
+    static readonly string[] KindNames = { "Headset", "Earbuds", "Mouse", "Keyboard", "Controller", "Phone", "Other" };
     readonly Slot slot;
     Color bg, fg;
     int hover = -1;

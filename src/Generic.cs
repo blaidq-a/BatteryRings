@@ -32,6 +32,7 @@ static class GenericDevices
         try { Bluetooth(bt); } catch { }
         foreach (var f in bt) if (!vendorNames.Contains(f.Name)) list.Add(f); // same device seen twice: keep the detailed one
         try { XInput(list); } catch { }
+        if (Settings.PhoneLink) try { PhoneLink.Read(list); } catch { }
         return list;
     }
 

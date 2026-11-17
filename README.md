@@ -17,6 +17,10 @@ Hover over (or click) the icon to see every device in detail.
 - **Xbox / XInput compatible wireless controllers** (Windows only reports four steps: Empty / Low / Medium / Full).
 - **Wireless keyboards and mice that report battery the standard HID way** (common on 2.4 GHz keyboards), which Windows itself does not display.
 
+**Optional:**
+- **Your phone**, through Microsoft Phone Link: battery percentage and charging, the same value Phone Link shows in the Start menu.
+  Off by default; turn on *Phone battery (Phone Link)* in Settings. Needs Phone Link set up with the phone connected.
+
 **Brand protocols:**
 
 | Brand | Devices | Tested |
@@ -41,7 +45,7 @@ Untested rows follow public protocol notes (see *Thanks*). If you own one, pleas
 - The icon shows the first three devices as rings; the panel lists all of them.
 - Devices that are not connected are not shown. With a single device, its icon sits in the middle of the ring;
   with none, the icon is an empty ring and the panel says "No devices found".
-- While charging, the ring turns yellow with a moving light; below 15% it turns red and pulses.
+- While charging, the ring and the bar turn yellow with a moving light and a small bolt appears next to the percentage; below 15% it turns red and pulses.
 - Optional alerts at 25%, 10% and 5%.
 
 ## Settings
@@ -56,6 +60,7 @@ Click the gear in the panel:
 - Footer buttons: check for updates, report a problem, quit
 - Low battery alerts
 - Install updates automatically, and a **Check for updates** button
+- Phone battery (Phone Link), off by default
 - Show or hide each device
 - Quit
 
@@ -120,10 +125,11 @@ user names or file paths.
 | Razer mice / keyboards | 90-byte feature report, power class `0x07`: `0x80` level, `0x84` charging |
 | SteelSeries / HyperX / Corsair | Vendor HID commands per model family |
 | Standard HID | Usages Battery Strength (`0x06:0x20`) and State of Charge (`0x85:0x64-0x66`) |
+| Phone (opt-in) | Phone Link writes its Start menu phone card to `%LOCALAPPDATA%\Packages\Microsoft.YourPhone_8wekyb3d8bbwe\LocalState\StartMenu\StartMenuCompanion.json`; the phone's name, battery percentage and charging state are taken from it |
 
 Code: `src/Devices.cs` (HID devices), `src/Buds.cs` (Bluetooth earbuds), `src/Generic.cs` (generic Bluetooth and XInput),
 `src/Vendors.cs` (Logitech, Razer, ASUS, PlayStation, headsets, standard HID battery), `src/Apple.cs` (AirPods),
-`src/GalaxyBuds.cs` (Samsung),
+`src/GalaxyBuds.cs` (Samsung), `src/PhoneLink.cs` (phone),
 `src/UI.cs` (icon, panel and settings), `src/Program.cs` (install).
 To add a device with dedicated support, define a `Slot` in `UI.cs` and read it in `Refresh`.
 
@@ -136,6 +142,8 @@ To add a device with dedicated support, define a `Slot` in `UI.cs` and read it i
 - It sends devices **read-only** queries and never changes their settings (the mouse's EEPROM write command is never used).
 - System DLLs are loaded from `System32` only, so a fake DLL placed next to the exe is never run.
 - Data coming from devices is parsed from fixed-size buffers with bounds checks.
+- The phone option (off by default) only reads Phone Link's Start menu card file. That file also holds recent notifications;
+  BatteryRings takes only the phone's name, battery percentage and charging state from it and does not store, log or report anything else.
 
 ## Thanks
 
