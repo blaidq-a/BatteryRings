@@ -1,6 +1,6 @@
 dist/
 *.exe
 *.pdb
-test_sonuc.txt
+test_result.txt
 *.png
 !docs/*.png

@@ -11,23 +11,20 @@ Hover over (or click) the icon to see every device in detail.
 - **Xbox / XInput compatible wireless controllers** (Windows only reports four steps: Empty / Low / Medium / Full).
 - **Wireless keyboards and mice that report battery the standard HID way** (common on 2.4 GHz keyboards), which Windows itself does not display.
 
-**Brand protocols** (from public protocol notes, see *Thanks*; please report whether your model works):
+**Brand protocols:**
 
-| Brand | Devices |
-|---|---|
-| Logitech | Mice, keyboards and G headsets on Unifying, Bolt or Lightspeed receivers, by cable or Bluetooth (HID++ 2.0) |
-| Razer | Wireless mice and keyboards (dongle or cable) |
-| SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless |
-| HyperX | Cloud Alpha Wireless, Cloud Flight |
-| Corsair | Void family wireless headsets |
+| Brand | Devices | Tested |
+|---|---|---|
+| Razer | Barracuda X (2022) headset on its 2.4 GHz dongle, with charging state | ✅ |
+| Razer | Wireless mice and keyboards (dongle or cable) | – |
+| ATK | A9 Ultimate and ATK mice with the same Compx firmware (dongle or cable); a steady percentage computed from the battery voltage | ✅ |
+| Nothing / CMF | CMF Buds Pro 2 (other CMF Buds models use the same protocol): left, right and case separately | ✅ |
+| Logitech | Mice, keyboards and G headsets on Unifying, Bolt or Lightspeed receivers, by cable or Bluetooth (HID++ 2.0) | – |
+| SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless | – |
+| HyperX | Cloud Alpha Wireless, Cloud Flight | – |
+| Corsair | Void family wireless headsets | – |
 
-**Dedicated support (more detail):**
-
-| Device | What you get |
-|---|---|
-| Razer Barracuda X (2022), 2.4 GHz dongle | Battery and charging state |
-| ATK A9 Ultimate (and ATK mice with the same Compx firmware), dongle or cable | A steady percentage computed from the battery voltage |
-| CMF Buds Pro 2 (Nothing) | Left / right / case separately |
+Untested rows follow public protocol notes (see *Thanks*). If you own one, please open an issue saying whether it works.
 
 - The icon shows the first three devices as rings; the panel lists all of them.
 - Devices that are not connected are not shown. With a single device, its icon sits in the middle of the ring.
@@ -71,7 +68,7 @@ Output: `dist\BatteryRings.exe`. Command line options:
 |---|---|
 | `/portable` | Run without installing |
 | `/install`, `/uninstall` | Silent install / uninstall |
-| `/test` | Read all devices once and write the result to `test_sonuc.txt` |
+| `/test` | Read all devices once and write the result to `test_result.txt` |
 
 ## How it works
 

@@ -79,7 +79,7 @@ static class Program
         var m = new AtkMouse().Read();
         var bd = new CmfBuds(); var b = bd.Read(); bd.Dispose();
         string bp = ""; if (b.Parts != null) foreach (var p in b.Parts) bp += " " + p.Name + "=" + p.Percent + (p.Charging ? "+" : "");
-        File.WriteAllText("test_sonuc.txt",
+        File.WriteAllText("test_result.txt",
             "kulaklik present=" + h.Present + " pil=" + h.Percent + " sarj=" + h.Charging + Environment.NewLine +
             "mouse present=" + m.Present + " pil=" + m.Percent + " sarj=" + m.Charging + " mv=" + m.MilliVolt + Environment.NewLine +
             "buds present=" + b.Present + " pil=" + b.Percent + bp + Environment.NewLine +
