@@ -15,8 +15,8 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("BatteryRings")]
 [assembly: AssemblyCompany("BatteryRings")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.5.5.0")]
-[assembly: AssemblyFileVersion("1.5.5.0")]
+[assembly: AssemblyVersion("1.5.6.0")]
+[assembly: AssemblyFileVersion("1.5.6.0")]
 // Guvenlik: P/Invoke DLL'leri yalnizca System32'den yuklenir (exe'nin yanina konan sahte DLL calismaz)
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -107,6 +107,7 @@ static class Program
         try { Headsets.Scan(v); } catch (Exception e) { t += "headset hata: " + e.Message + Environment.NewLine; }
         try { AsusMice.Scan(v); } catch (Exception e) { t += "asus hata: " + e.Message + Environment.NewLine; }
         try { HyperXCloud2.Scan(v); } catch (Exception e) { t += "hyperx hata: " + e.Message + Environment.NewLine; }
+        try { HyperXCloud3.Scan(v); } catch (Exception e) { t += "hyperx3 hata: " + e.Message + Environment.NewLine; }
         try { HidBattery.Scan(v); } catch (Exception e) { t += "hidbat hata: " + e.Message + Environment.NewLine; }
         t += "vendor tarama " + sw.ElapsedMilliseconds + " ms, " + v.Count + " cihaz" + Environment.NewLine;
         foreach (var f in v) t += "vendor " + f.Kind + " pil=" + f.Reading.Percent + Environment.NewLine;

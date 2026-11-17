@@ -39,6 +39,7 @@ static class VendorDevices
             try { RazerMice.Scan(list); } catch { }
             try { Headsets.Scan(list); } catch { }
             try { HyperXCloud2.Scan(list); } catch { }
+            try { HyperXCloud3.Scan(list); } catch { }
             try { AsusMice.Scan(list); } catch { }
             try { PlayStation.Scan(list); } catch { }
             try { HidBattery.Scan(list); } catch { }
@@ -760,5 +761,69 @@ static class HyperXCloud2
         }
         l.Send(0x06, 0xFF, 0xBB, cmd, 0x00);
         return l.Wait(b => b[0] == 0x06 && b[1] == 0xFF && b[2] == 0xBB && b[3] == cmd, 1000);
+    }
+}
+
+// ---------------- HyperX Cloud III Wireless / Cloud III S Wireless ----------------
+// Protocols from HyperHeadset (LennardKittner/HyperHeadset), which captured them from HyperX's own software.
+//   Cloud III Wireless    03F0:05B7 / 03F0:0C9D   62-byte report 0x66:  66 <cmd>
+//       cmd 0x89 battery -> 66 89 s1 s2 level   (s1 = s2 = 0: headset off)
+//       cmd 0x8A charging -> 66 8A state        (0 no, 1 charging, 2 full)
+//   Cloud III S Wireless  03F0:06BE / 03F0:02CC   64-byte report 0x0C:  0C 02 03 01 00 <cmd>
+//       reply 0C .. .. .. .. <cmd> value        (value 0xFF: no answer / headset off)
+//       cmd 0x06 battery, cmd 0x48 charging state
+// Not tested on real hardware here.
+static class HyperXCloud3
+{
+    public static void Scan(List<Found> list)
+    {
+        foreach (var c in VendorDevices.Collections(0x03F0))
+        {
+            int pid = VendorDevices.Pid(c.Key);
+            bool s = pid == 0x06BE || pid == 0x02CC;
+            if (!s && pid != 0x05B7 && pid != 0x0C9D) continue;
+            if (c.Value.UsagePage < 0xFF00 || c.Value.OutputReportByteLength < (s ? 64 : 62)) continue;
+            var r = Read(c.Key, c.Value, s);
+            if (r == null) continue;
+            string def = s ? "HyperX Cloud III S Wireless" : "HyperX Cloud III Wireless";
+            list.Add(new Found { Id = "hyperx-c3:" + pid.ToString("x4"), Name = VendorDevices.Product(c.Key) ?? def, Kind = Kind.Headset, Reading = r });
+            break;
+        }
+    }
+
+    static Reading Read(string path, Native.HIDP_CAPS caps, bool s)
+    {
+        var l = HidLink.Open(path, caps.OutputReportByteLength);
+        if (l == null) return null;
+        try
+        {
+            int level, chg;
+            if (s)
+            {
+                var b = Ask(l, new byte[] { 0x0C, 0x02, 0x03, 0x01, 0x00, 0x06 }, x => x[0] == 0x0C && x[5] == 0x06);
+                if (b == null || b[6] > 100) return null;
+                level = b[6];
+                var c = Ask(l, new byte[] { 0x0C, 0x02, 0x03, 0x01, 0x00, 0x48 }, x => x[0] == 0x0C && x[5] == 0x48);
+                chg = c != null && c[6] != 0xFF ? c[6] : 0;
+            }
+            else
+            {
+                var b = Ask(l, new byte[] { 0x66, 0x89 }, x => x[0] == 0x66 && x[1] == 0x89);
+                if (b == null || (b[2] == 0 && b[3] == 0) || b[4] > 100) return null; // headset off
+                level = b[4];
+                var c = Ask(l, new byte[] { 0x66, 0x8A }, x => x[0] == 0x66 && x[1] == 0x8A);
+                chg = c != null ? c[2] : 0;
+            }
+            return new Reading { Present = true, Percent = level, Charging = chg == 1 };
+        }
+        catch { return null; }
+        finally { l.Dispose(); }
+    }
+
+    static byte[] Ask(HidLink l, byte[] req, Func<byte[], bool> ok)
+    {
+        l.Drain();
+        l.Send(req);
+        return l.Wait(x => x.Length > 6 && ok(x), 1000);
     }
 }

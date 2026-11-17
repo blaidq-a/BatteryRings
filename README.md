@@ -31,7 +31,7 @@ Hover over (or click) the icon to see every device in detail.
 | Sony | DualSense, DualSense Edge and DualShock 4 controllers, by cable or Bluetooth | – |
 | Logitech | Mice, keyboards and G headsets on Unifying, Bolt or Lightspeed receivers, by cable or Bluetooth (HID++ 2.0) | – |
 | SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless | – |
-| HyperX | Cloud II Wireless, Cloud Alpha Wireless, Cloud Flight | – |
+| HyperX | Cloud II Wireless, Cloud III Wireless, Cloud III S Wireless, Cloud Alpha Wireless, Cloud Flight | – |
 | Corsair | Void family wireless headsets | – |
 | ASUS | ROG Pugio II | ✅ |
 | ASUS | Other ROG / TUF wireless mice: Keris, Gladius II / III, Chakram, Harpe Ace, Spatha X, Strix Carry / Impact, TUF M4, MD200 / MD301 | – |
@@ -142,7 +142,7 @@ To add a device with dedicated support, define a `Slot` in `UI.cs` and read it i
 Protocol details come from these projects:
 [BudsLink](https://github.com/maniacx/BudsLink) and [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge) (Nothing / CMF),
 [Solaar](https://github.com/pwr-Solaar/Solaar) (Logitech HID++), [OpenRazer](https://github.com/openrazer/openrazer) (Razer),
-[HeadsetControl](https://github.com/Sapd/HeadsetControl) (SteelSeries, HyperX, Corsair), [G-Helper](https://github.com/seerge/g-helper) (ASUS mice), [AirPodsDesktop](https://github.com/SpriteOvO/AirPodsDesktop) (AirPods),
+[HeadsetControl](https://github.com/Sapd/HeadsetControl) (SteelSeries, HyperX, Corsair), [HyperHeadset](https://github.com/LennardKittner/HyperHeadset) (HyperX Cloud III), [G-Helper](https://github.com/seerge/g-helper) (ASUS mice), [AirPodsDesktop](https://github.com/SpriteOvO/AirPodsDesktop) (AirPods),
 [GalaxyBudsClient](https://github.com/timschneeb/GalaxyBudsClient) (Galaxy Buds), Linux `hid-playstation` (PlayStation controllers).
 
 ## License
