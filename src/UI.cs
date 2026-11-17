@@ -19,18 +19,82 @@ class Slot
 {
     public string Id, Name;
     public Kind Kind;
-    public Color Hue;
+    public int ColorIndex;   // which theme colour this device uses
+    public Color Hue { get { return Themes.Current.Hue(ColorIndex); } }
     public Reading Last = new Reading();
     public DateTime LastOk = DateTime.MinValue;
     public int LastWarn = 101;
     public bool Active;
 }
 
+// Preset colour themes for the panel and the rings
+class Theme
+{
+    public string Name;
+    public Color Swatch;
+    public bool System;          // follow Windows light/dark and accent colour
+    public bool IsLight;
+    public Color Bg, Fg, Accent;
+    public Color[] Hues;
+    public Color Hue(int i) { return Hues[((i % Hues.Length) + Hues.Length) % Hues.Length]; }
+}
+
+static class Themes
+{
+    static Color C(int r, int g, int b) { return Color.FromArgb(255, r, g, b); }
+    public static readonly Theme[] All = {
+        new Theme { Name = "Default", System = true, Swatch = C(128, 128, 128),
+            Hues = new[] { C(40, 200, 255), C(175, 120, 255), C(255, 140, 50), C(70, 215, 130), C(255, 95, 160), C(90, 140, 255), C(200, 220, 70) } },
+        new Theme { Name = "Sakura", IsLight = true, Swatch = C(244, 143, 177),
+            Bg = C(255, 241, 246), Fg = C(74, 36, 54), Accent = C(232, 93, 141),
+            Hues = new[] { C(236, 98, 150), C(178, 110, 210), C(255, 150, 120), C(120, 190, 150), C(110, 150, 230), C(240, 180, 60) } },
+        new Theme { Name = "Aqua", Swatch = C(0, 200, 210),
+            Bg = C(12, 34, 42), Fg = C(222, 248, 250), Accent = C(0, 200, 205),
+            Hues = new[] { C(0, 220, 230), C(90, 160, 255), C(120, 240, 190), C(255, 200, 90), C(190, 140, 255), C(255, 120, 150) } },
+        new Theme { Name = "Midnight", Swatch = C(120, 100, 255),
+            Bg = C(17, 17, 32), Fg = C(232, 232, 255), Accent = C(126, 106, 255),
+            Hues = new[] { C(140, 120, 255), C(90, 175, 255), C(225, 120, 255), C(110, 230, 200), C(255, 150, 110), C(240, 220, 120) } },
+        new Theme { Name = "Forest", Swatch = C(96, 180, 110),
+            Bg = C(20, 31, 23), Fg = C(226, 242, 226), Accent = C(92, 186, 110),
+            Hues = new[] { C(110, 210, 120), C(200, 220, 90), C(90, 190, 170), C(240, 170, 80), C(160, 140, 230), C(240, 120, 110) } },
+        new Theme { Name = "Sunset", Swatch = C(255, 120, 70),
+            Bg = C(38, 22, 22), Fg = C(255, 236, 226), Accent = C(255, 118, 72),
+            Hues = new[] { C(255, 140, 60), C(255, 90, 110), C(255, 205, 90), C(190, 120, 255), C(90, 200, 220), C(150, 220, 120) } },
+    };
+    public static Theme Current
+    {
+        get { string n = Settings.Theme; foreach (var t in All) if (t.Name == n) return t; return All[0]; }
+    }
+}
+
 static class Look
 {
     public static float K = 1f;
-    public static bool Light;
-    public static Color Fg { get { return Light ? Color.FromArgb(255, 25, 25, 25) : Color.White; } }
+    public static bool TaskbarLight;
+    public static bool Panel;    // true while the panel is being drawn: colours come from the theme
+    public static bool Light
+    {
+        get { var t = Themes.Current; return Panel && !t.System ? t.IsLight : TaskbarLight; }
+        set { TaskbarLight = value; }
+    }
+    public static Color Fg
+    {
+        get
+        {
+            var t = Themes.Current;
+            if (Panel && !t.System) return t.Fg;
+            return Light ? Color.FromArgb(255, 25, 25, 25) : Color.White;
+        }
+    }
+    public static Color PanelBg
+    {
+        get
+        {
+            var t = Themes.Current;
+            if (!t.System) return t.Bg;
+            return Light ? Color.FromArgb(255, 243, 243, 243) : Color.FromArgb(255, 36, 36, 36);
+        }
+    }
     public static readonly Color ChargeC = Color.FromArgb(255, 255, 204, 0);
     public static readonly Color LowC = Color.FromArgb(255, 255, 80, 70);
     public static Color A(Color c, int a) { return Color.FromArgb(Math.Max(0, Math.Min(255, a)), c.R, c.G, c.B); }
@@ -150,6 +214,36 @@ static class Look
         using (var br = new SolidBrush(ChargeC)) g.FillPolygon(br, pts);
     }
 
+    public static Color Accent
+    {
+        get
+        {
+            if (!Themes.Current.System) return Themes.Current.Accent;
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\DWM"))
+                {
+                    object v = k == null ? null : k.GetValue("AccentColor");
+                    if (v is int) { int c = (int)v; return Color.FromArgb(255, c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF); }
+                }
+            }
+            catch { }
+            return Color.FromArgb(255, 76, 160, 255);
+        }
+    }
+
+    // A single Fluent icon glyph centred in a box
+    public static void Icon(Graphics g, string glyph, RectangleF box, float size, Color c)
+    {
+        using (var fam = new FontFamily(IconFace))
+        using (var path = new GraphicsPath())
+        using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+        {
+            path.AddString(glyph, fam, (int)FontStyle.Regular, size, box, sf);
+            using (var br = new SolidBrush(c)) g.FillPath(br, path);
+        }
+    }
+
     public static string Pct(int p) { return p < 0 ? "–" : p + "%"; }
 }
 
@@ -220,14 +314,11 @@ class BatteryUI : ApplicationContext
     readonly Barracuda dHead = new Barracuda();
     readonly AtkMouse dMouse = new AtkMouse();
     readonly CmfBuds dBuds = new CmfBuds();
-    readonly Slot head = new Slot { Id = "razer-barracuda-x", Name = "Razer Barracuda X", Kind = Kind.Headset, Hue = Color.FromArgb(255, 40, 200, 255) };
-    readonly Slot mouse = new Slot { Id = "atk-mouse", Name = "ATK A9 Ultimate", Kind = Kind.Mouse, Hue = Color.FromArgb(255, 175, 120, 255) };
-    readonly Slot buds = new Slot { Id = "cmf-buds", Name = "CMF Buds Pro 2", Kind = Kind.Buds, Hue = Color.FromArgb(255, 255, 140, 50) };
+    readonly Slot head = new Slot { Id = "razer-barracuda-x", Name = "Razer Barracuda X", Kind = Kind.Headset, ColorIndex = 0 };
+    readonly Slot mouse = new Slot { Id = "atk-mouse", Name = "ATK A9 Ultimate", Kind = Kind.Mouse, ColorIndex = 1 };
+    readonly Slot buds = new Slot { Id = "cmf-buds", Name = "CMF Buds Pro 2", Kind = Kind.Buds, ColorIndex = 2 };
     readonly List<Slot> slots;
     readonly HashSet<string> hidden = LoadHidden();
-    static readonly Color[] Palette = {
-        Color.FromArgb(255, 70, 215, 130), Color.FromArgb(255, 255, 95, 160),
-        Color.FromArgb(255, 90, 140, 255), Color.FromArgb(255, 200, 220, 70) };
     int paletteNext;
     List<Found> generic = new List<Found>();
     DateTime genericAt = DateTime.MinValue;
@@ -241,7 +332,6 @@ class BatteryUI : ApplicationContext
     readonly System.Windows.Forms.Timer watch = new System.Windows.Forms.Timer();
     readonly System.Windows.Forms.Timer hoverDelay = new System.Windows.Forms.Timer();
     readonly ContextMenuStrip menu = new ContextMenuStrip();
-    ToolStripMenuItem autoStart;
     int busy;
     float phase;
     bool pinned;
@@ -256,23 +346,15 @@ class BatteryUI : ApplicationContext
         Look.Refresh();
         invoker.CreateControl();
 
-        var devMenu = new ToolStripMenuItem("Cihazlar");
-        devMenu.DropDownItems.Add("(cihaz yok)");
-        menu.Items.Add(devMenu);
-        menu.Opening += delegate { BuildDeviceMenu(devMenu); };
-        menu.Items.Add("Şimdi yenile", null, delegate { genericAt = DateTime.MinValue; Refresh(); });
-        autoStart = new ToolStripMenuItem("Windows ile başlat");
-        autoStart.Checked = IsAutoStart();
-        autoStart.Click += delegate { SetAutoStart(!autoStart.Checked); autoStart.Checked = IsAutoStart(); };
-        menu.Items.Add(autoStart);
-        if (Program.IsInstalled) menu.Items.Add("Kaldır", null, delegate { icon.Visible = false; Program.Uninstall(false); icon.Visible = ActiveSlots().Count > 0; });
+        menu.Items.Add("Settings", null, delegate { ShowSettings(); });
+        menu.Items.Add("Refresh", null, delegate { genericAt = DateTime.MinValue; Refresh(); });
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Çıkış", null, delegate { icon.Visible = false; ExitThread(); });
+        menu.Items.Add("Quit", null, delegate { icon.Visible = false; ExitThread(); });
         icon.ContextMenuStrip = menu;
         icon.MouseMove += delegate
         {
             lastIconMove = DateTime.Now;
-            if (panel == null || !panel.Visible) { if (!hoverDelay.Enabled) hoverDelay.Start(); }
+            if (panel == null || !panel.Visible) { if (Settings.HoverOpen && !hoverDelay.Enabled) hoverDelay.Start(); }
             else lastInside = DateTime.Now;
         };
         icon.MouseClick += (o, e) =>
@@ -307,7 +389,11 @@ class BatteryUI : ApplicationContext
             t.Tick += delegate
             {
                 t.Stop(); phase = 0.5f;
+                string dd = LayeredWindow.DumpDir;
                 ShowPanel(true);
+                try { File.Copy(Path.Combine(dd, "panel.png"), Path.Combine(dd, "panel_main.png"), true); } catch { }
+                ShowSettings();
+                try { File.Copy(Path.Combine(dd, "panel.png"), Path.Combine(dd, "panel_settings.png"), true); } catch { }
                 using (var b = RingIcon(64)) b.Save(Path.Combine(LayeredWindow.DumpDir, "icon64.png"));
                 using (var b = RingIcon(16)) b.Save(Path.Combine(LayeredWindow.DumpDir, "icon16.png"));
                 icon.Visible = false; ExitThread();
@@ -357,7 +443,7 @@ class BatteryUI : ApplicationContext
             if (d.Last.Percent <= lvl && d.LastWarn > lvl)
             {
                 d.LastWarn = lvl;
-                if (icon.Visible) icon.ShowBalloonTip(5000, d.Name + " pili azaldı", "Kalan pil: %" + d.Last.Percent, ToolTipIcon.Warning);
+                if (icon.Visible && Settings.Alerts) icon.ShowBalloonTip(5000, d.Name + " battery low", d.Last.Percent + "% remaining", ToolTipIcon.Warning);
                 return;
             }
     }
@@ -372,7 +458,7 @@ class BatteryUI : ApplicationContext
             var s = slots.Find(x => x.Id == f.Id);
             if (s == null)
             {
-                s = new Slot { Id = f.Id, Kind = f.Kind, Hue = Palette[paletteNext++ % Palette.Length] };
+                s = new Slot { Id = f.Id, Kind = f.Kind, ColorIndex = 3 + paletteNext++ };
                 slots.Add(s);
             }
             s.Name = f.Name;
@@ -388,28 +474,6 @@ class BatteryUI : ApplicationContext
 
     // Gorunen (gizlenmemis) aktif cihazlar
     List<Slot> ActiveSlots() { return slots.FindAll(s => s.Active && !hidden.Contains(s.Id)); }
-
-    void BuildDeviceMenu(ToolStripMenuItem m)
-    {
-        m.DropDownItems.Clear();
-        var act = slots.FindAll(s => s.Active);
-        if (act.Count == 0) { m.DropDownItems.Add(new ToolStripMenuItem("(bağlı cihaz yok)") { Enabled = false }); return; }
-        foreach (var s in act)
-        {
-            var sl = s;
-            var it = new ToolStripMenuItem(s.Name) { Checked = !hidden.Contains(s.Id), CheckOnClick = true };
-            it.Click += delegate
-            {
-                if (it.Checked) hidden.Remove(sl.Id); else hidden.Add(sl.Id);
-                SaveHidden(hidden);
-                DrawIcon();
-                if (panel != null && panel.Visible) DrawPanel();
-            };
-            m.DropDownItems.Add(it);
-        }
-        m.DropDownItems.Add(new ToolStripSeparator());
-        m.DropDownItems.Add(new ToolStripMenuItem("Simgede ilk 3 cihaz halka olarak görünür") { Enabled = false });
-    }
 
     const string StateKey = @"Software\BatteryRings";
     static HashSet<string> LoadHidden()
@@ -449,9 +513,7 @@ class BatteryUI : ApplicationContext
                 if (iconHandle != IntPtr.Zero) DestroyIcon(iconHandle);
                 iconHandle = h;
             }
-            string tip = "";
-            foreach (var s in act) tip += (tip.Length > 0 ? "\n" : "") + Short(s);
-            icon.Text = tip.Length > 127 ? tip.Substring(0, 127) : tip;
+            icon.Text = ""; // no tooltip: it would cover the panel
         }
         else HidePanel();
         if (icon.Visible != any) icon.Visible = any;
@@ -464,14 +526,6 @@ class BatteryUI : ApplicationContext
         }
         if (a && !anim.Enabled) anim.Start();
         if (!a && anim.Enabled) anim.Stop();
-    }
-
-    static string Short(Slot s)
-    {
-        if (s.Last.Parts != null && s.Last.Parts.Count >= 2)
-            return "Buds  S " + Look.Pct(s.Last.Parts[0].Percent) + "  Ğ " + Look.Pct(s.Last.Parts[1].Percent);
-        string n = s.Name.Length > 24 ? s.Name.Substring(0, 24) : s.Name;
-        return n + " " + (s.Last.Text ?? Look.Pct(s.Last.Percent)) + (s.Last.Charging ? " şarjda" : "");
     }
 
     // Ic ice halkalar; tek cihazda halka + ortada cihaz simgesi
@@ -536,12 +590,36 @@ class BatteryUI : ApplicationContext
     }
 
     // ---------------- Panel ----------------
+    // Two views: device list, and settings (gear button). Clickable areas are collected while drawing.
+
+    class Hit { public RectangleF R; public Action A; }
+    readonly List<Hit> hits = new List<Hit>();
+    int hot = -1;
+    bool settingsView;
 
     void ShowPanel(bool pin)
     {
-        if (ActiveSlots().Count == 0) return;
+        if (ActiveSlots().Count == 0 && !settingsView) return;
         pinned = pin || pinned;
-        if (panel == null || panel.IsDisposed) panel = new LayeredWindow(false);
+        if (panel == null || panel.IsDisposed)
+        {
+            panel = new LayeredWindow(false);
+            panel.MouseMove += (o, e) =>
+            {
+                lastInside = DateTime.Now;
+                int h = hits.FindIndex(x => x.R.Contains(e.Location));
+                panel.Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
+                if (h != hot) { hot = h; DrawPanel(); }
+            };
+            panel.MouseLeave += delegate { if (hot != -1) { hot = -1; DrawPanel(); } };
+            panel.MouseClick += (o, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                pinned = true;
+                var h = hits.Find(x => x.R.Contains(e.Location));
+                if (h != null) { h.A(); hot = -1; if (panel.Visible) DrawPanel(); }
+            };
+        }
         lastInside = DateTime.Now;
         DrawPanel();
         if (!panel.Visible) panel.Visible = true;
@@ -549,9 +627,13 @@ class BatteryUI : ApplicationContext
         watch.Start();
     }
 
+    void ShowSettings() { settingsView = true; ShowPanel(true); }
+
     void HidePanel()
     {
         pinned = false;
+        settingsView = false;
+        hot = -1;
         watch.Stop();
         if (panel != null && panel.Visible) panel.Visible = false;
     }
@@ -568,7 +650,7 @@ class BatteryUI : ApplicationContext
         else if ((DateTime.Now - lastInside).TotalMilliseconds > 400) HidePanel();
     }
 
-    // Simgenin ekrandaki yeri (Shell_NotifyIconGetRect)
+    // Where the tray icon is on screen (Shell_NotifyIconGetRect)
     bool IconRect(out RECT r)
     {
         r = new RECT();
@@ -585,72 +667,50 @@ class BatteryUI : ApplicationContext
 
     static bool Multi(Slot s) { return s.Last.Parts != null && s.Last.Parts.Count > 0; }
 
-    const float PW = 272, PPad = 14, RowH = 46, BudsRowH = 74;
+    const float PW = 300, PPad = 16, HeadH = 46, RowH = 52, MultiRowH = 80, SetRowH = 40, ThemeRowH = 62;
 
     void DrawPanel()
     {
-        var act = ActiveSlots();
-        if (act.Count == 0) { HidePanel(); return; }
+        if (panel == null) return;
         float k = Look.K;
-        float hh = PPad * 2 - 4;
-        foreach (var s in act) hh += (Multi(s) ? BudsRowH : RowH);
+        var devs = settingsView ? slots.FindAll(s => s.Active) : ActiveSlots();
+        if (!settingsView && devs.Count == 0) { HidePanel(); return; }
+
+        float hh = HeadH;
+        if (settingsView) hh += SetRowH * 3 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 50;
+        else foreach (var s in devs) hh += Multi(s) ? MultiRowH : RowH;
+        hh += 8;
         int W = (int)(PW * k), H = (int)(hh * k);
-        bool light = Look.Light;
-        Color fg = Look.Fg, sub = Look.A(fg, light ? 140 : 150);
+        hits.Clear();
+
         using (var bmp = new Bitmap(W, H, PixelFormat.Format32bppArgb))
         {
-            using (var g = Graphics.FromImage(bmp))
-            using (var fName = new Font("Segoe UI", 13f * k, GraphicsUnit.Pixel))
-            using (var fPct = new Font("Segoe UI Semibold", 13f * k, GraphicsUnit.Pixel))
-            using (var fSmall = new Font("Segoe UI", 11.5f * k, GraphicsUnit.Pixel))
+            Look.Panel = true;
+            try
             {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                var sf = StringFormat.GenericTypographic;
-
-                using (var p = Look.Round(new RectangleF(0.5f, 0.5f, W - 1, H - 1), 8 * k))
+                using (var g = Graphics.FromImage(bmp))
                 {
-                    using (var br = new SolidBrush(light ? Color.FromArgb(252, 243, 243, 243) : Color.FromArgb(252, 39, 39, 39))) g.FillPath(br, p);
-                    using (var pen = new Pen(light ? Color.FromArgb(28, 0, 0, 0) : Color.FromArgb(28, 255, 255, 255), 1f)) g.DrawPath(pen, p);
-                }
-
-                float L = PPad * k, R = W - PPad * k, y = (PPad - 2) * k;
-                float gs = 16 * k, tx = L + gs + 12 * k;
-                foreach (var s in act)
-                {
-                    var r = s.Last;
-                    float ty = y + 6 * k;
-                    Look.Glyph(g, s.Kind, new RectangleF(L, ty + 1 * k, gs, gs), Look.A(fg, 210));
-                    using (var br = new SolidBrush(fg)) g.DrawString(s.Name, fName, br, tx, ty, sf);
-
-                    if (!Multi(s))
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    // opaque background + ClearType: much crisper text than greyscale on a translucent layer
+                    g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                    bool light = Look.Light;
+                    using (var p = Look.Round(new RectangleF(0.5f, 0.5f, W - 1, H - 1), 8 * k))
                     {
-                        PctRight(g, fPct, fSmall, R, ty, r.Percent, r.Charging, fg, sub, sf, r.Text);
-                        Look.Bar(g, new RectangleF(tx, ty + 23 * k, R - tx, 3 * k), r.Percent, Look.BarColor(s, r.Percent, r.Charging), r.Charging, phase);
+                        using (var br = new SolidBrush(Look.PanelBg)) g.FillPath(br, p);
+                        using (var pen = new Pen(light ? Color.FromArgb(34, 0, 0, 0) : Color.FromArgb(36, 255, 255, 255), 1f)) g.DrawPath(pen, p);
                     }
-                    else
-                    {
-                        var parts = r.Parts ?? new List<Part>();
-                        float colW = (R - tx - 2 * 14 * k) / 3f;
-                        for (int i = 0; i < 3; i++)
-                        {
-                            Part p = i < parts.Count ? parts[i] : new Part { Name = i == 0 ? "Sol" : i == 1 ? "Sağ" : "Kutu" };
-                            float cx = tx + i * (colW + 14 * k), cy = ty + 24 * k;
-                            using (var br = new SolidBrush(sub)) g.DrawString(p.Name, fSmall, br, cx, cy, sf);
-                            PctRight(g, fPct, fSmall, cx + colW, cy - 1 * k, p.Percent, p.Charging, fg, sub, sf);
-                            Look.Bar(g, new RectangleF(cx, cy + 21 * k, colW, 3 * k), p.Percent, Look.BarColor(s, p.Percent, p.Charging), p.Charging, phase);
-                        }
-                    }
-                    y += (Multi(s) ? BudsRowH : RowH) * k;
+                    if (settingsView) DrawSettings(g, W, devs); else DrawDevices(g, W, devs);
                 }
             }
+            finally { Look.Panel = false; }
 
-            // konum: simgenin ustu, ortalanmis; simge yeri bilinmiyorsa imlecin ustu
+            // above the tray icon, centred; fall back to the cursor
             RECT ir;
             Point anchor;
             int top;
             if (IconRect(out ir)) { anchor = new Point((ir.l + ir.r) / 2, ir.t); top = ir.t; }
+            else if (panel.Visible) { anchor = new Point(panel.Left + panel.Width / 2, panel.Bottom + 12); top = panel.Bottom + 12; }
             else { anchor = Cursor.Position; top = Cursor.Position.Y - 12; }
             var scr = Screen.FromPoint(anchor).Bounds;
             int px = Math.Max(scr.Left + 8, Math.Min(anchor.X - W / 2, scr.Right - W - 8));
@@ -660,14 +720,218 @@ class BatteryUI : ApplicationContext
         }
     }
 
-    // Sagdan hizali yuzde; sarjda yaninda kucuk "sarj" isareti
-    static void PctRight(Graphics g, Font f, Font fs, float right, float y, int pct, bool chg, Color fg, Color sub, StringFormat sf, string text = null)
+    // Header: title on the left, one round icon button on the right (or left for "back")
+    void Header(Graphics g, float W, string title, string glyph, bool left, Action a)
+    {
+        float k = Look.K, L = PPad * k;
+        var btn = left ? new RectangleF(L - 6 * k, 8 * k, 30 * k, 30 * k) : new RectangleF(W - L - 24 * k, 8 * k, 30 * k, 30 * k);
+        int idx = hits.Count;
+        hits.Add(new Hit { R = btn, A = a });
+        if (hot == idx)
+            using (var p = Look.Round(btn, 5 * k))
+            using (var br = new SolidBrush(Look.A(Look.Fg, Look.Light ? 18 : 22))) g.FillPath(br, p);
+        Look.Icon(g, glyph, btn, 14 * k, Look.A(Look.Fg, 220));
+        float tx = left ? btn.Right + 4 * k : L;
+        using (var f = new Font("Segoe UI Semibold", 14f * k, GraphicsUnit.Pixel))
+        using (var br = new SolidBrush(Look.Fg))
+            g.DrawString(title, f, br, tx, 13 * k, StringFormat.GenericTypographic);
+    }
+
+    void DrawDevices(Graphics g, float W, List<Slot> devs)
+    {
+        float k = Look.K;
+        Color fg = Look.Fg, sub = Look.A(fg, Look.Light ? 175 : 180);
+        var sf = StringFormat.GenericTypographic;
+        Header(g, W, "Battery", "", false, ShowSettings);
+
+        using (var fName = new Font("Segoe UI", 14f * k, GraphicsUnit.Pixel))
+        using (var fPct = new Font("Segoe UI Semibold", 14f * k, GraphicsUnit.Pixel))
+        using (var fSmall = new Font("Segoe UI", 12.5f * k, GraphicsUnit.Pixel))
+        {
+            float L = PPad * k, R = W - PPad * k, y = HeadH * k;
+            float gs = 16 * k, tx = L + gs + 12 * k;
+            foreach (var s in devs)
+            {
+                var r = s.Last;
+                float ty = y + 4 * k;
+                Look.Glyph(g, s.Kind, new RectangleF(L, ty + 1 * k, gs, gs), Look.A(fg, 235));
+                string name = s.Name;
+                float maxName = R - tx - 70 * k;
+                while (name.Length > 4 && g.MeasureString(name, fName, PointF.Empty, sf).Width > maxName) name = name.Substring(0, name.Length - 2);
+                if (name != s.Name) name = name.TrimEnd() + "…";
+                using (var br = new SolidBrush(fg)) g.DrawString(name, fName, br, tx, ty, sf);
+
+                if (!Multi(s))
+                {
+                    PctRight(g, fPct, R, ty, r.Percent, r.Charging, fg, sub, sf, r.Text);
+                    Look.Bar(g, new RectangleF(tx, ty + 24 * k, R - tx, 4 * k), r.Percent, Look.BarColor(s, r.Percent, r.Charging), r.Charging, phase);
+                    y += RowH * k;
+                }
+                else
+                {
+                    var parts = r.Parts;
+                    float colW = (R - tx - 2 * 14 * k) / 3f;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Part p = i < parts.Count ? parts[i] : new Part { Name = i == 0 ? "Left" : i == 1 ? "Right" : "Case" };
+                        float cx = tx + i * (colW + 14 * k), cy = ty + 25 * k;
+                        using (var br = new SolidBrush(sub)) g.DrawString(p.Name, fSmall, br, cx, cy, sf);
+                        PctRight(g, fPct, cx + colW, cy - 1 * k, p.Percent, p.Charging, fg, sub, sf, null);
+                        Look.Bar(g, new RectangleF(cx, cy + 21 * k, colW, 4 * k), p.Percent, Look.BarColor(s, p.Percent, p.Charging), p.Charging, phase);
+                    }
+                    y += MultiRowH * k;
+                }
+            }
+        }
+    }
+
+    void DrawSettings(Graphics g, float W, List<Slot> devs)
+    {
+        float k = Look.K;
+        Color fg = Look.Fg, sub = Look.A(fg, Look.Light ? 175 : 180);
+        var sf = StringFormat.GenericTypographic;
+        Header(g, W, "Settings", "", true, delegate { settingsView = false; if (ActiveSlots().Count == 0) HidePanel(); });
+
+        using (var f = new Font("Segoe UI", 14f * k, GraphicsUnit.Pixel))
+        using (var fSmall = new Font("Segoe UI Semibold", 11.5f * k, GraphicsUnit.Pixel))
+        {
+            float L = PPad * k, R = W - PPad * k, y = HeadH * k;
+            Toggle(g, f, L, R, ref y, null, "Start with Windows", IsAutoStart(), delegate { SetAutoStart(!IsAutoStart()); });
+            Toggle(g, f, L, R, ref y, null, "Open when hovering the icon", Settings.HoverOpen, delegate { Settings.HoverOpen = !Settings.HoverOpen; });
+            Toggle(g, f, L, R, ref y, null, "Low battery alerts", Settings.Alerts, delegate { Settings.Alerts = !Settings.Alerts; });
+
+            y += 10 * k;
+            using (var br = new SolidBrush(sub)) g.DrawString("THEME", fSmall, br, L, y, sf);
+            y += 20 * k;
+            ThemePicker(g, f, L, R, ref y);
+
+            y += 10 * k;
+            using (var br = new SolidBrush(sub)) g.DrawString("SHOW DEVICES", fSmall, br, L, y, sf);
+            y += 20 * k;
+            if (devs.Count == 0)
+            {
+                using (var br = new SolidBrush(sub)) g.DrawString("No devices connected", f, br, L, y + 10 * k, sf);
+                y += SetRowH * k;
+            }
+            foreach (var s in devs)
+            {
+                var sl = s;
+                Toggle(g, f, L, R, ref y, s, s.Name, !hidden.Contains(s.Id), delegate
+                {
+                    if (hidden.Contains(sl.Id)) hidden.Remove(sl.Id); else hidden.Add(sl.Id);
+                    SaveHidden(hidden);
+                    DrawIcon();
+                });
+            }
+
+            // footer
+            y += 12 * k;
+            using (var pen = new Pen(Look.A(fg, Look.Light ? 22 : 24), 1f)) g.DrawLine(pen, L, y, R, y);
+            y += 12 * k;
+            using (var br = new SolidBrush(sub))
+                g.DrawString("by blaidq  ·  v" + Application.ProductVersion.Substring(0, Application.ProductVersion.LastIndexOf('.')), f, br, L, y + 4 * k, sf);
+            float x = R;
+            x = Link(g, f, x, y, "Quit", fg, delegate { icon.Visible = false; ExitThread(); });
+        }
+    }
+
+    // Row of colour swatches; the chosen one gets a ring, its name sits underneath
+    void ThemePicker(Graphics g, Font f, float L, float R, ref float y)
+    {
+        float k = Look.K, d = 26 * k;
+        int n = Themes.All.Length;
+        float gap = (R - L - n * d) / (n - 1);
+        var cur = Themes.Current;
+        for (int i = 0; i < n; i++)
+        {
+            var t = Themes.All[i];
+            var cell = new RectangleF(L + i * (d + gap), y + 2 * k, d, d);
+            int idx = hits.Count;
+            hits.Add(new Hit { R = RectangleF.Inflate(cell, 4 * k, 4 * k), A = delegate { Settings.Theme = t.Name; DrawIcon(); } });
+            var inner = RectangleF.Inflate(cell, -4 * k, -4 * k);
+            if (t.System)
+            {
+                // half light / half dark circle = "follow Windows"
+                using (var br = new SolidBrush(Color.FromArgb(255, 240, 240, 240))) g.FillPie(br, inner.X, inner.Y, inner.Width, inner.Height, 90, 180);
+                using (var br = new SolidBrush(Color.FromArgb(255, 40, 40, 40))) g.FillPie(br, inner.X, inner.Y, inner.Width, inner.Height, 270, 180);
+            }
+            else
+            {
+                using (var br = new SolidBrush(t.Bg)) g.FillEllipse(br, inner);
+                var dot = RectangleF.Inflate(inner, -inner.Width * 0.22f, -inner.Height * 0.22f);
+                using (var br = new SolidBrush(t.Swatch)) g.FillEllipse(br, dot);
+            }
+            using (var pen = new Pen(Look.A(Look.Fg, 60), 1f)) g.DrawEllipse(pen, inner);
+            if (t == cur)
+                using (var pen = new Pen(Look.Accent, 2f * k)) g.DrawEllipse(pen, RectangleF.Inflate(cell, -1 * k, -1 * k));
+            else if (hot == idx)
+                using (var pen = new Pen(Look.A(Look.Fg, 90), 1.5f * k)) g.DrawEllipse(pen, RectangleF.Inflate(cell, -1 * k, -1 * k));
+        }
+        using (var br = new SolidBrush(Look.A(Look.Fg, 200)))
+            g.DrawString(cur.Name, f, br, L, y + d + 10 * k, StringFormat.GenericTypographic);
+        y += ThemeRowH * k;
+    }
+
+    // One settings row: [optional device glyph] label ........ [switch]
+    void Toggle(Graphics g, Font f, float L, float R, ref float y, Slot dev, string label, bool on, Action a)
+    {
+        float k = Look.K;
+        var row = new RectangleF(L - 8 * k, y, R - L + 16 * k, SetRowH * k);
+        int idx = hits.Count;
+        hits.Add(new Hit { R = row, A = a });
+        if (hot == idx)
+            using (var p = Look.Round(row, 5 * k))
+            using (var br = new SolidBrush(Look.A(Look.Fg, Look.Light ? 12 : 14))) g.FillPath(br, p);
+
+        float tx = L;
+        if (dev != null)
+        {
+            Look.Glyph(g, dev.Kind, new RectangleF(L, y + 12 * k, 16 * k, 16 * k), Look.A(Look.Fg, 200));
+            tx += 28 * k;
+        }
+        string t = label;
+        float maxW = R - tx - 52 * k;
+        while (t.Length > 4 && g.MeasureString(t, f, PointF.Empty, StringFormat.GenericTypographic).Width > maxW) t = t.Substring(0, t.Length - 2);
+        if (t != label) t = t.TrimEnd() + "…";
+        using (var br = new SolidBrush(Look.Fg)) g.DrawString(t, f, br, tx, y + 11 * k, StringFormat.GenericTypographic);
+
+        // Windows 11 style switch
+        var sw = new RectangleF(R - 40 * k, y + 10 * k, 40 * k, 20 * k);
+        using (var p = Look.Round(sw, 10 * k))
+        {
+            if (on) using (var br = new SolidBrush(Look.Accent)) g.FillPath(br, p);
+            else using (var pen = new Pen(Look.A(Look.Fg, 170), 1.2f * k)) g.DrawPath(pen, p);
+        }
+        float d = (on ? 12 : 10) * k;
+        float kx = on ? sw.Right - 4 * k - d : sw.X + 5 * k;
+        using (var br = new SolidBrush(on ? (Look.Light ? Color.White : Color.FromArgb(255, 20, 20, 20)) : Look.A(Look.Fg, 200)))
+            g.FillEllipse(br, kx, sw.Y + (sw.Height - d) / 2, d, d);
+        y += SetRowH * k;
+    }
+
+    // Text button aligned to the right edge; returns the left edge for the next one
+    float Link(Graphics g, Font f, float right, float y, string text, Color c, Action a)
+    {
+        float k = Look.K;
+        float w = g.MeasureString(text, f, PointF.Empty, StringFormat.GenericTypographic).Width;
+        var r = new RectangleF(right - w - 16 * k, y - 2 * k, w + 16 * k, 26 * k);
+        int idx = hits.Count;
+        hits.Add(new Hit { R = r, A = a });
+        if (hot == idx)
+            using (var p = Look.Round(r, 5 * k))
+            using (var br = new SolidBrush(Look.A(Look.Fg, Look.Light ? 14 : 18))) g.FillPath(br, p);
+        using (var br = new SolidBrush(c)) g.DrawString(text, f, br, r.X + 8 * k, y + 4 * k, StringFormat.GenericTypographic);
+        return r.X;
+    }
+
+    // Right-aligned percentage; small bolt when charging
+    static void PctRight(Graphics g, Font f, float right, float y, int pct, bool chg, Color fg, Color sub, StringFormat sf, string text)
     {
         float k = Look.K;
         string t = text ?? Look.Pct(pct);
         float w = g.MeasureString(t, f, PointF.Empty, sf).Width;
         bool low = !chg && pct >= 0 && pct <= 15;
-        using (var br = new SolidBrush(pct < 0 ? sub : low ? Look.LowC : fg)) g.DrawString(t, f, br, right - w, y, sf);
+        using (var br = new SolidBrush(pct < 0 ? sub : chg ? Look.ChargeC : low ? Look.LowC : fg)) g.DrawString(t, f, br, right - w, y, sf);
         if (chg && pct >= 0) Look.Bolt(g, new PointF(right - w - 10 * k, y + 2 * k), 11 * k);
     }
 
@@ -712,4 +976,33 @@ class BatteryUI : ApplicationContext
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, int f);
     [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
+}
+
+// Small per-user settings in HKCU\Software\BatteryRings
+static class Settings
+{
+    const string Key = @"Software\BatteryRings";
+    static bool Get(string name, bool def)
+    {
+        try { using (var k = Registry.CurrentUser.OpenSubKey(Key)) { object v = k == null ? null : k.GetValue(name); return v is int ? (int)v != 0 : def; } }
+        catch { return def; }
+    }
+    static void Set(string name, bool v)
+    {
+        try { using (var k = Registry.CurrentUser.CreateSubKey(Key)) k.SetValue(name, v ? 1 : 0, RegistryValueKind.DWord); } catch { }
+    }
+    public static bool HoverOpen { get { return Get("HoverOpen", true); } set { Set("HoverOpen", value); } }
+    public static bool Alerts { get { return Get("Alerts", true); } set { Set("Alerts", value); } }
+    static string theme; // cached: read many times per frame
+    public static string Theme
+    {
+        get
+        {
+            if (theme == null)
+                try { using (var k = Registry.CurrentUser.OpenSubKey(Key)) theme = (k == null ? null : k.GetValue("Theme") as string) ?? "Default"; }
+                catch { theme = "Default"; }
+            return theme;
+        }
+        set { theme = value; try { using (var k = Registry.CurrentUser.CreateSubKey(Key)) k.SetValue("Theme", value); } catch { } }
+    }
 }

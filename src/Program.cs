@@ -11,12 +11,12 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 
 [assembly: AssemblyTitle("BatteryRings")]
-[assembly: AssemblyDescription("Kablosuz kulaklik, mouse ve kulak ici kulaklik pil seviyelerini gorev cubugunda gosterir")]
+[assembly: AssemblyDescription("Shows the battery levels of wireless devices in the Windows taskbar")]
 [assembly: AssemblyProduct("BatteryRings")]
 [assembly: AssemblyCompany("BatteryRings")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 // Guvenlik: P/Invoke DLL'leri yalnizca System32'den yuklenir (exe'nin yanina konan sahte DLL calismaz)
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -56,9 +56,9 @@ static class Program
         if (!IsInstalled && mode != "/portable")
         {
             var ans = MessageBox.Show(
-                "BatteryRings bu bilgisayara kurulsun mu?\n\n" +
-                "Kurulursa Windows ile birlikte açılır ve Başlat menüsüne eklenir.\n" +
-                "Hayır derseniz kurmadan bu sefer çalışır.",
+                "Install BatteryRings on this PC?\n\n" +
+                "It will start with Windows and appear in the Start menu.\n" +
+                "Choose No to just run it this time without installing.",
                 AppName, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
             if (ans == DialogResult.Cancel) return;
             if (ans == DialogResult.Yes) { Install(false); return; }
@@ -89,6 +89,14 @@ static class Program
     static string GenericLines()
     {
         string t = "";
+        var v = new System.Collections.Generic.List<Found>();
+        var sw = Stopwatch.StartNew();
+        try { Logitech.Scan(v); } catch (Exception e) { t += "logitech hata: " + e.Message + Environment.NewLine; }
+        try { RazerMice.Scan(v); } catch (Exception e) { t += "razer hata: " + e.Message + Environment.NewLine; }
+        try { Headsets.Scan(v); } catch (Exception e) { t += "headset hata: " + e.Message + Environment.NewLine; }
+        try { HidBattery.Scan(v); } catch (Exception e) { t += "hidbat hata: " + e.Message + Environment.NewLine; }
+        t += "vendor tarama " + sw.ElapsedMilliseconds + " ms, " + v.Count + " cihaz" + Environment.NewLine;
+        foreach (var f in v) t += "vendor " + f.Kind + " pil=" + f.Reading.Percent + Environment.NewLine;
         foreach (var f in GenericDevices.Read())
             t += "genel " + f.Kind + " pil=" + f.Reading.Percent + (f.Reading.Text != null ? " (" + f.Reading.Text + ")" : "") + Environment.NewLine;
         return t;
@@ -123,24 +131,26 @@ static class Program
             using (var k = Registry.CurrentUser.CreateSubKey(RunKey)) k.SetValue(AppName, "\"" + InstalledExe + "\"");
             CleanupLegacy();
             MakeShortcut();
+            RegisterUninstall();
             Process.Start(InstalledExe);
             if (!quiet)
-                MessageBox.Show("Kuruldu. Simge görev çubuğunda, saatin yanında.\n\nKaldırmak için simgeye sağ tıklayıp \"Kaldır\"ı seçin.",
+                MessageBox.Show("Installed. The icon is in the taskbar, next to the clock.\n\nTo uninstall, use Windows Settings > Apps > Installed apps.",
                     AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception e)
         {
-            MessageBox.Show("Kurulum yapılamadı: " + e.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show("Could not install: " + e.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
     public static void Uninstall(bool quiet)
     {
-        if (!quiet && MessageBox.Show("BatteryRings kaldırılsın mı?", AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+        if (!quiet && MessageBox.Show("Uninstall BatteryRings?", AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
         StopOthers();
         try { using (var k = Registry.CurrentUser.OpenSubKey(RunKey, true)) if (k != null) k.DeleteValue(AppName, false); } catch { }
         try { if (File.Exists(Shortcut)) File.Delete(Shortcut); } catch { }
+        try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false); } catch { }
         try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\BatteryRings", false); } catch { }
         try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\PilGostergesi", false); } catch { }
         // calisan exe kendini silemez: kapandiktan sonra klasoru sil
@@ -151,6 +161,29 @@ static class Program
         }
         catch { }
         Application.Exit();
+    }
+
+    // Entry in Windows Settings > Apps > Installed apps (per-user, no admin rights needed)
+    const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + AppName;
+    static void RegisterUninstall()
+    {
+        try
+        {
+            using (var k = Registry.CurrentUser.CreateSubKey(UninstallKey))
+            {
+                k.SetValue("DisplayName", AppName);
+                k.SetValue("DisplayVersion", Application.ProductVersion);
+                k.SetValue("Publisher", "blaidq");
+                k.SetValue("DisplayIcon", InstalledExe);
+                k.SetValue("InstallLocation", InstallDir);
+                k.SetValue("UninstallString", "\"" + InstalledExe + "\" /uninstall");
+                k.SetValue("QuietUninstallString", "\"" + InstalledExe + "\" /uninstall");
+                k.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+                k.SetValue("EstimatedSize", (int)Math.Max(1, new FileInfo(InstalledExe).Length / 1024), RegistryValueKind.DWord);
+            }
+        }
+        catch { }
     }
 
     // Eski adla (BarracudaPil) kalmis otomatik baslatma kaydini temizle
@@ -172,7 +205,7 @@ static class Program
             var lt = lnk.GetType();
             lt.InvokeMember("TargetPath", BindingFlags.SetProperty, null, lnk, new object[] { InstalledExe });
             lt.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, lnk, new object[] { InstallDir });
-            lt.InvokeMember("Description", BindingFlags.SetProperty, null, lnk, new object[] { "Cihaz pil göstergesi" });
+            lt.InvokeMember("Description", BindingFlags.SetProperty, null, lnk, new object[] { "Battery levels of your wireless devices" });
             lt.InvokeMember("Save", BindingFlags.InvokeMethod, null, lnk, null);
         }
         catch { }

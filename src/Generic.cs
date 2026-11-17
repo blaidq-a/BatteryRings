@@ -24,7 +24,12 @@ static class GenericDevices
     public static List<Found> Read()
     {
         var list = new List<Found>();
-        try { Bluetooth(list); } catch { }
+        try { list.AddRange(VendorDevices.Snapshot()); } catch { }
+        var vendorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in list) vendorNames.Add(f.Name);
+        var bt = new List<Found>();
+        try { Bluetooth(bt); } catch { }
+        foreach (var f in bt) if (!vendorNames.Contains(f.Name)) list.Add(f); // same device seen twice: keep the detailed one
         try { XInput(list); } catch { }
         return list;
     }
@@ -58,7 +63,7 @@ static class GenericDevices
                 else
                 {
                     byte[] n = Prop(set, ref di, NameKey);
-                    name = n != null ? Encoding.Unicode.GetString(n).TrimEnd('\0') : "Bluetooth cihazı";
+                    name = n != null ? Encoding.Unicode.GetString(n).TrimEnd('\0') : "Bluetooth device";
                 }
                 if (addr == null || !seen.Add(addr)) continue;
                 bool skip = false;
@@ -77,7 +82,7 @@ static class GenericDevices
         finally { SetupDiDestroyDeviceInfoList(set); }
     }
 
-    static Kind GuessKind(string n)
+    public static Kind GuessKind(string n)
     {
         n = n.ToLowerInvariant();
         if (n.Contains("controller") || n.Contains("gamepad") || n.Contains("dualsense") || n.Contains("dualshock") || n.Contains("joy")) return Kind.Gamepad;
@@ -134,10 +139,10 @@ static class GenericDevices
             if (b.Type != 2 && b.Type != 3) continue;
             var r = new Reading { Present = true };
             int[] pct = { 5, 30, 65, 100 };
-            string[] txt = { "Boş", "Düşük", "Orta", "Dolu" };
+            string[] txt = { "Empty", "Low", "Medium", "Full" };
             int lv = Math.Min(3, (int)b.Level);
             r.Percent = pct[lv]; r.Text = txt[lv];
-            list.Add(new Found { Id = "xinput:" + i, Name = "Oyun kolu " + (i + 1), Kind = Kind.Gamepad, Reading = r });
+            list.Add(new Found { Id = "xinput:" + i, Name = "Controller " + (i + 1), Kind = Kind.Gamepad, Reading = r });
         }
     }
 

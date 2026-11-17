@@ -1,86 +1,113 @@
 # BatteryRings
 
-Kablosuz cihazların pil seviyesini Windows görev çubuğunda **tek bir halka simgesiyle** gösterir.
-Simgenin üzerine gelince ya da tıklayınca her cihazın ayrıntısı açılır.
+Shows the battery levels of your wireless devices in the Windows taskbar as **one icon of concentric rings**.
+Hover over (or click) the icon to see every device in detail.
 
-## Desteklenen cihazlar
+## Supported devices
 
-**Kendiliğinden (ayar gerekmez):**
-- Pil seviyesini Windows'a bildiren **her Bluetooth cihaz**: kulaklık, mouse, klavye, oyun kolu.
-  Windows Ayarlar > Bluetooth'ta yüzdesi görünüyorsa burada da görünür.
-- **Xbox ve XInput uyumlu kablosuz oyun kolları** (Windows yalnızca 4 kademe verir: Boş / Düşük / Orta / Dolu).
+**Automatically, no setup needed:**
+- **Any Bluetooth device that reports its battery to Windows**: headphones, mice, keyboards, controllers.
+  If Windows Settings > Bluetooth shows a percentage for it, BatteryRings shows it too.
+- **Xbox / XInput compatible wireless controllers** (Windows only reports four steps: Empty / Low / Medium / Full).
+- **Wireless keyboards and mice that report battery the standard HID way** (common on 2.4 GHz keyboards), which Windows itself does not display.
 
-**Özel destek (daha ayrıntılı):**
+**Brand protocols** (from public protocol notes, see *Thanks*; please report whether your model works):
 
-| Cihaz | Ne gösterir |
+| Brand | Devices |
 |---|---|
-| Razer Barracuda X (2022), 2.4 GHz alıcı | Pil ve şarj durumu |
-| ATK A9 Ultimate (ve aynı Compx firmware'li ATK mouse'lar), alıcı ya da kablo | Voltajdan hesaplanan, zıplamayan pil yüzdesi |
-| CMF Buds Pro 2 (Nothing) | Sol / sağ / kutu ayrı ayrı |
+| Logitech | Mice, keyboards and G headsets on Unifying, Bolt or Lightspeed receivers, by cable or Bluetooth (HID++ 2.0) |
+| Razer | Wireless mice and keyboards (dongle or cable) |
+| SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless |
+| HyperX | Cloud Alpha Wireless, Cloud Flight |
+| Corsair | Void family wireless headsets |
 
-- Simgede ilk üç cihaz iç içe halka olarak görünür; panelde hepsi listelenir.
-- Sağ tık > **Cihazlar** menüsünden istemediğin cihazı gizleyebilirsin.
-- Bağlı olmayan cihaz gösterilmez; tek cihaz varsa halkanın ortasında o cihazın simgesi durur.
-- Şarj olurken halka sarı olur ve üzerinde bir ışık döner; %15'in altında kırmızı yanıp söner.
-- %20, %10 ve %5'te uyarı bildirimi gelir.
+**Dedicated support (more detail):**
 
-## Kurulum
+| Device | What you get |
+|---|---|
+| Razer Barracuda X (2022), 2.4 GHz dongle | Battery and charging state |
+| ATK A9 Ultimate (and ATK mice with the same Compx firmware), dongle or cable | A steady percentage computed from the battery voltage |
+| CMF Buds Pro 2 (Nothing) | Left / right / case separately |
 
-1. [Releases](../../releases) sayfasından `BatteryRings.exe`'yi indir.
-2. Çalıştır, "kurulsun mu?" sorusuna **Evet** de.
+- The icon shows the first three devices as rings; the panel lists all of them.
+- Devices that are not connected are not shown. With a single device, its icon sits in the middle of the ring.
+- While charging, the ring turns yellow with a moving light; below 15% it turns red and pulses.
+- Optional alerts at 20%, 10% and 5%.
 
-Kendini `%LOCALAPPDATA%\Programs\BatteryRings` altına kurar, Windows ile birlikte açılır ve Başlat menüsüne eklenir.
-Yönetici izni gerekmez. Yeni sürümü aynı şekilde çalıştırmak eskisinin üzerine kurar.
-Kaldırmak için simgeye sağ tıklayıp **Kaldır**'ı seç.
+## Settings
 
-> İmzasız bir exe olduğu için Windows SmartScreen ya da antivirüs uyarı verebilir. Kaynak kod bu repoda;
-> istersen exe'yi kendin derleyebilirsin.
+Click the gear in the panel:
 
-## Derleme
+- Start with Windows
+- Open the panel when hovering the icon (otherwise click it)
+- Theme: Default (follows Windows), Sakura, Aqua, Midnight, Forest, Sunset
+- Low battery alerts
+- Show or hide each device
+- Quit
 
-Ek bir şey kurmaya gerek yok; Windows'ta hazır gelen .NET Framework 4 derleyicisi kullanılır:
+## Install
+
+1. Download `BatteryRings.exe` from the [Releases](../../releases) page.
+2. Run it and answer **Yes** to "Install BatteryRings on this PC?".
+
+It installs itself to `%LOCALAPPDATA%\Programs\BatteryRings`, starts with Windows and adds a Start menu shortcut.
+No administrator rights are needed. Running a newer version installs it over the old one.
+To uninstall, use Windows Settings > Apps > Installed apps > BatteryRings.
+
+> The exe is not code-signed, so Windows SmartScreen or an antivirus may warn about it.
+> The full source is here and you can build it yourself.
+
+## Build
+
+Nothing to install: the .NET Framework 4 compiler that ships with Windows is enough.
 
 ```bat
 build.cmd
 ```
 
-Çıktı: `dist\BatteryRings.exe`. Komut satırı seçenekleri:
+Output: `dist\BatteryRings.exe`. Command line options:
 
-| Seçenek | Ne yapar |
+| Option | What it does |
 |---|---|
-| `/portable` | Kurmadan çalıştırır |
-| `/install`, `/uninstall` | Sessiz kurulum / kaldırma |
-| `/test` | Cihazları bir kez okuyup `test_sonuc.txt`'ye yazar |
+| `/portable` | Run without installing |
+| `/install`, `/uninstall` | Silent install / uninstall |
+| `/test` | Read all devices once and write the result to `test_sonuc.txt` |
 
-## Nasıl çalışıyor
+## How it works
 
-| Cihaz | Yol |
+| Device | How |
 |---|---|
-| Razer Barracuda X | Alıcının HID arabirimi (1532:0552, usage page 0xFF00): pil ve şarj kablosu sorguları |
-| ATK mouse | Compx HID raporları (VID 373B, usage page 0xFF02). Firmware'in yüzdesi zıpladığı için yüzde **voltajdan** hesaplanır (LiHV eğrisi, tam dolu ≈ 4,35 V) ve filtrelenir; şarjda gerçek şarj hızına göre yükselir |
-| CMF Buds | Bluetooth RFCOMM üzerinden Nothing protokolü (servis `aeac4a03-dff5-498f-843a-34487cf133eb`, pil komutu `0xC007`) |
+| Razer Barracuda X | HID interface of the dongle (1532:0552, usage page 0xFF00): battery and charging-cable queries |
+| ATK mouse | Compx HID reports (VID 373B, usage page 0xFF02). The firmware percentage jumps around, so the percentage is computed from **voltage** (LiHV curve, full ≈ 4.35 V) and filtered; while charging it rises at the measured charge rate |
+| CMF Buds | Nothing protocol over Bluetooth RFCOMM (service `aeac4a03-dff5-498f-843a-34487cf133eb`, battery command `0xC007`) |
+| Bluetooth (generic) | Windows device property `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2` (SetupAPI) |
+| Controllers | `XInputGetBatteryInformation` |
+| Logitech | HID++ 2.0 features `0x1004` Unified Battery, `0x1000` Battery Status, `0x1001` Battery Voltage, `0x1F20` ADC (headsets) |
+| Razer mice / keyboards | 90-byte feature report, power class `0x07`: `0x80` level, `0x84` charging |
+| SteelSeries / HyperX / Corsair | Vendor HID commands per model family |
+| Standard HID | Usages Battery Strength (`0x06:0x20`) and State of Charge (`0x85:0x64-0x66`) |
 
-| Bluetooth (genel) | Windows'un aygıt özelliği `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2` (SetupAPI) |
-| Oyun kolları | `XInputGetBatteryInformation` |
+Code: `src/Devices.cs` (HID devices), `src/Buds.cs` (Bluetooth earbuds), `src/Generic.cs` (generic Bluetooth and XInput),
+`src/Vendors.cs` (Logitech, Razer, headsets, standard HID battery),
+`src/UI.cs` (icon, panel and settings), `src/Program.cs` (install).
+To add a device with dedicated support, define a `Slot` in `UI.cs` and read it in `Refresh`.
 
-Kod: `src/Devices.cs` (HID cihazları), `src/Buds.cs` (Bluetooth kulaklık), `src/Generic.cs` (genel Bluetooth ve XInput),
-`src/UI.cs` (simge ve panel), `src/Program.cs` (kurulum).
-Yeni bir özel cihaz eklemek için `UI.cs`'te bir `Slot` tanımlayıp `Refresh` içinde okumak yeterli.
+## Privacy and security
 
-## Gizlilik ve güvenlik
+- **It never connects to the internet**, collects nothing and sends nothing. There is no network code; it only talks to local USB/HID and Bluetooth devices.
+- No administrator rights. It only writes to the user's own folders and registry (`HKCU`):
+  `%LOCALAPPDATA%\Programs\BatteryRings`, `HKCU\Software\BatteryRings` (settings, hidden devices, last mouse value) and the startup and Installed apps entries. Uninstalling removes all of them.
+- It sends devices **read-only** queries and never changes their settings (the mouse's EEPROM write command is never used).
+- System DLLs are loaded from `System32` only, so a fake DLL placed next to the exe is never run.
+- Data coming from devices is parsed from fixed-size buffers with bounds checks.
 
-- **İnternete hiç bağlanmaz**, veri toplamaz ve hiçbir şey göndermez. Ağ kodu yoktur; tek iletişim yerel USB/HID ve Bluetooth cihazlarıyladır.
-- Yönetici izni istemez; yalnızca kullanıcının kendi klasörüne ve kayıt defterine (`HKCU`) yazar:
-  `%LOCALAPPDATA%\Programs\BatteryRings`, `HKCU\Software\BatteryRings` (gizlenen cihazlar, mouse'un son değeri) ve otomatik başlatma kaydı. **Kaldır** hepsini siler.
-- Cihazlara yalnızca **okuma** komutları gönderir; ayarlarını değiştirmez (mouse'ta EEPROM yazma komutu hiç kullanılmaz).
-- Sistem DLL'leri yalnızca `System32`'den yüklenir; exe'nin yanına konan sahte bir DLL çalıştırılmaz.
-- Cihazlardan gelen veriler sabit boyutlu tamponlarda, sınır kontrolüyle ayrıştırılır.
+## Thanks
 
-## Teşekkürler
+Protocol details come from these projects:
+[BudsLink](https://github.com/maniacx/BudsLink) and [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge) (Nothing / CMF),
+[Solaar](https://github.com/pwr-Solaar/Solaar) (Logitech HID++), [OpenRazer](https://github.com/openrazer/openrazer) (Razer),
+[HeadsetControl](https://github.com/Sapd/HeadsetControl) (SteelSeries, HyperX, Corsair).
 
-Nothing / CMF protokolü için [BudsLink](https://github.com/maniacx/BudsLink) ve
-[Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge) projelerinin belgelerinden yararlanıldı.
-
-## Lisans
+## License
 
 GPL-3.0

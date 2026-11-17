@@ -52,9 +52,9 @@ class CmfBuds : IDisposable
         {
             if ((DateTime.Now - lastBat).TotalSeconds > 90) return r; // Percent -1: bilinmiyor
             r.Parts = new List<Part> {
-                new Part { Name = "Sol", Percent = left, Charging = lc },
-                new Part { Name = "Sağ", Percent = right, Charging = rc },
-                new Part { Name = "Kutu", Percent = cas, Charging = cc } };
+                new Part { Name = "Left", Percent = left, Charging = lc },
+                new Part { Name = "Right", Percent = right, Charging = rc },
+                new Part { Name = "Case", Percent = cas, Charging = cc } };
             int min = 101; bool chg = false;
             foreach (var p in new[] { r.Parts[0], r.Parts[1] })
                 if (p.Percent >= 0) { min = Math.Min(min, p.Percent); chg |= p.Charging; }
@@ -175,7 +175,7 @@ class CmfBuds : IDisposable
         {
             do
             {
-                if (di.fConnected) map[di.Address.ToString("X12")] = string.IsNullOrEmpty(di.szName) ? "Bluetooth cihazı" : di.szName;
+                if (di.fConnected) map[di.Address.ToString("X12")] = string.IsNullOrEmpty(di.szName) ? "Bluetooth device" : di.szName;
                 di.dwSize = Marshal.SizeOf(typeof(DEVINFO));
             } while (BluetoothFindNextDevice(h, ref di));
         }
