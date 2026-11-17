@@ -3,12 +3,23 @@
 Kablosuz cihazların pil seviyesini Windows görev çubuğunda **tek bir halka simgesiyle** gösterir.
 Simgenin üzerine gelince ya da tıklayınca her cihazın ayrıntısı açılır.
 
-| Halka | Cihaz |
-|---|---|
-| Dış (mavi) | Razer Barracuda X (2022), 2.4 GHz alıcı |
-| Orta (mor) | ATK A9 Ultimate (ve aynı Compx firmware'li ATK mouse'lar) |
-| İç (turuncu) | CMF Buds Pro 2 (Nothing): sol / sağ / kutu ayrı ayrı |
+## Desteklenen cihazlar
 
+**Kendiliğinden (ayar gerekmez):**
+- Pil seviyesini Windows'a bildiren **her Bluetooth cihaz**: kulaklık, mouse, klavye, oyun kolu.
+  Windows Ayarlar > Bluetooth'ta yüzdesi görünüyorsa burada da görünür.
+- **Xbox ve XInput uyumlu kablosuz oyun kolları** (Windows yalnızca 4 kademe verir: Boş / Düşük / Orta / Dolu).
+
+**Özel destek (daha ayrıntılı):**
+
+| Cihaz | Ne gösterir |
+|---|---|
+| Razer Barracuda X (2022), 2.4 GHz alıcı | Pil ve şarj durumu |
+| ATK A9 Ultimate (ve aynı Compx firmware'li ATK mouse'lar), alıcı ya da kablo | Voltajdan hesaplanan, zıplamayan pil yüzdesi |
+| CMF Buds Pro 2 (Nothing) | Sol / sağ / kutu ayrı ayrı |
+
+- Simgede ilk üç cihaz iç içe halka olarak görünür; panelde hepsi listelenir.
+- Sağ tık > **Cihazlar** menüsünden istemediğin cihazı gizleyebilirsin.
 - Bağlı olmayan cihaz gösterilmez; tek cihaz varsa halkanın ortasında o cihazın simgesi durur.
 - Şarj olurken halka sarı olur ve üzerinde bir ışık döner; %15'in altında kırmızı yanıp söner.
 - %20, %10 ve %5'te uyarı bildirimi gelir.
@@ -49,8 +60,21 @@ build.cmd
 | ATK mouse | Compx HID raporları (VID 373B, usage page 0xFF02). Firmware'in yüzdesi zıpladığı için yüzde **voltajdan** hesaplanır (LiHV eğrisi, tam dolu ≈ 4,35 V) ve filtrelenir; şarjda gerçek şarj hızına göre yükselir |
 | CMF Buds | Bluetooth RFCOMM üzerinden Nothing protokolü (servis `aeac4a03-dff5-498f-843a-34487cf133eb`, pil komutu `0xC007`) |
 
-Kod: `src/Devices.cs` (HID cihazları), `src/Buds.cs` (Bluetooth kulaklık), `src/UI.cs` (simge ve panel), `src/Program.cs` (kurulum).
-Yeni cihaz eklemek için `UI.cs`'te bir `Slot` tanımlayıp `Refresh` içinde okumak yeterli.
+| Bluetooth (genel) | Windows'un aygıt özelliği `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2` (SetupAPI) |
+| Oyun kolları | `XInputGetBatteryInformation` |
+
+Kod: `src/Devices.cs` (HID cihazları), `src/Buds.cs` (Bluetooth kulaklık), `src/Generic.cs` (genel Bluetooth ve XInput),
+`src/UI.cs` (simge ve panel), `src/Program.cs` (kurulum).
+Yeni bir özel cihaz eklemek için `UI.cs`'te bir `Slot` tanımlayıp `Refresh` içinde okumak yeterli.
+
+## Gizlilik ve güvenlik
+
+- **İnternete hiç bağlanmaz**, veri toplamaz ve hiçbir şey göndermez. Ağ kodu yoktur; tek iletişim yerel USB/HID ve Bluetooth cihazlarıyladır.
+- Yönetici izni istemez; yalnızca kullanıcının kendi klasörüne ve kayıt defterine (`HKCU`) yazar:
+  `%LOCALAPPDATA%\Programs\BatteryRings`, `HKCU\Software\BatteryRings` (gizlenen cihazlar, mouse'un son değeri) ve otomatik başlatma kaydı. **Kaldır** hepsini siler.
+- Cihazlara yalnızca **okuma** komutları gönderir; ayarlarını değiştirmez (mouse'ta EEPROM yazma komutu hiç kullanılmaz).
+- Sistem DLL'leri yalnızca `System32`'den yüklenir; exe'nin yanına konan sahte bir DLL çalıştırılmaz.
+- Cihazlardan gelen veriler sabit boyutlu tamponlarda, sınır kontrolüyle ayrıştırılır.
 
 ## Teşekkürler
 

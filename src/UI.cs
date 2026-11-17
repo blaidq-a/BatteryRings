@@ -13,11 +13,11 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-enum Kind { Headset, Mouse, Buds, Gamepad }
+enum Kind { Headset, Mouse, Buds, Gamepad, Keyboard, Other }
 
 class Slot
 {
-    public string Name;
+    public string Id, Name;
     public Kind Kind;
     public Color Hue;
     public Reading Last = new Reading();
@@ -106,7 +106,8 @@ static class Look
     public static void Glyph(Graphics g, Kind kind, RectangleF box, Color c)
     {
         if (kind == Kind.Buds) { Buds(g, box, c); return; }
-        string ch = kind == Kind.Headset ? "" : kind == Kind.Mouse ? "" : "";
+        string ch = kind == Kind.Headset ? "\uE7F6" : kind == Kind.Mouse ? "\uE962" : kind == Kind.Gamepad ? "\uE7FC"
+                  : kind == Kind.Keyboard ? "\uE765" : "\uE702";
         using (var fam = new FontFamily(IconFace))
         using (var path = new GraphicsPath())
         using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
@@ -219,10 +220,17 @@ class BatteryUI : ApplicationContext
     readonly Barracuda dHead = new Barracuda();
     readonly AtkMouse dMouse = new AtkMouse();
     readonly CmfBuds dBuds = new CmfBuds();
-    readonly Slot head = new Slot { Name = "Razer Barracuda X", Kind = Kind.Headset, Hue = Color.FromArgb(255, 40, 200, 255) };
-    readonly Slot mouse = new Slot { Name = "ATK A9 Ultimate", Kind = Kind.Mouse, Hue = Color.FromArgb(255, 175, 120, 255) };
-    readonly Slot buds = new Slot { Name = "CMF Buds Pro 2", Kind = Kind.Buds, Hue = Color.FromArgb(255, 255, 140, 50) };
+    readonly Slot head = new Slot { Id = "razer-barracuda-x", Name = "Razer Barracuda X", Kind = Kind.Headset, Hue = Color.FromArgb(255, 40, 200, 255) };
+    readonly Slot mouse = new Slot { Id = "atk-mouse", Name = "ATK A9 Ultimate", Kind = Kind.Mouse, Hue = Color.FromArgb(255, 175, 120, 255) };
+    readonly Slot buds = new Slot { Id = "cmf-buds", Name = "CMF Buds Pro 2", Kind = Kind.Buds, Hue = Color.FromArgb(255, 255, 140, 50) };
     readonly List<Slot> slots;
+    readonly HashSet<string> hidden = LoadHidden();
+    static readonly Color[] Palette = {
+        Color.FromArgb(255, 70, 215, 130), Color.FromArgb(255, 255, 95, 160),
+        Color.FromArgb(255, 90, 140, 255), Color.FromArgb(255, 200, 220, 70) };
+    int paletteNext;
+    List<Found> generic = new List<Found>();
+    DateTime genericAt = DateTime.MinValue;
 
     readonly NotifyIcon icon = new NotifyIcon();
     IntPtr iconHandle;
@@ -248,7 +256,11 @@ class BatteryUI : ApplicationContext
         Look.Refresh();
         invoker.CreateControl();
 
-        menu.Items.Add("Şimdi yenile", null, delegate { Refresh(); });
+        var devMenu = new ToolStripMenuItem("Cihazlar");
+        devMenu.DropDownItems.Add("(cihaz yok)");
+        menu.Items.Add(devMenu);
+        menu.Opening += delegate { BuildDeviceMenu(devMenu); };
+        menu.Items.Add("Şimdi yenile", null, delegate { genericAt = DateTime.MinValue; Refresh(); });
         autoStart = new ToolStripMenuItem("Windows ile başlat");
         autoStart.Checked = IsAutoStart();
         autoStart.Click += delegate { SetAutoStart(!autoStart.Checked); autoStart.Checked = IsAutoStart(); };
@@ -313,11 +325,19 @@ class BatteryUI : ApplicationContext
         ThreadPool.QueueUserWorkItem(delegate
         {
             Reading h = Safe(dHead.Read), m = Safe(dMouse.Read), b = Safe(dBuds.Read);
+            List<Found> gen = null;
+            if ((DateTime.Now - genericAt).TotalSeconds >= 9)
+            {
+                try { gen = GenericDevices.Read(); } catch { gen = new List<Found>(); }
+                genericAt = DateTime.Now;
+            }
             invoker.BeginInvoke((Action)delegate
             {
                 Interlocked.Exchange(ref busy, 0);
                 buds.Name = dBuds.DeviceName;
                 Apply(head, h); Apply(mouse, m); Apply(buds, b);
+                if (gen != null) generic = gen;
+                ApplyGeneric();
                 DrawIcon();
                 if (panel != null && panel.Visible) DrawPanel();
             });
@@ -342,7 +362,76 @@ class BatteryUI : ApplicationContext
             }
     }
 
-    List<Slot> ActiveSlots() { return slots.FindAll(s => s.Active); }
+    // Ozel kodu olmayan (Bluetooth / XInput) cihazlar: gelenlere yuva ac, gidenleri kaldir
+    void ApplyGeneric()
+    {
+        var ids = new HashSet<string>();
+        foreach (var f in generic)
+        {
+            ids.Add(f.Id);
+            var s = slots.Find(x => x.Id == f.Id);
+            if (s == null)
+            {
+                s = new Slot { Id = f.Id, Kind = f.Kind, Hue = Palette[paletteNext++ % Palette.Length] };
+                slots.Add(s);
+            }
+            s.Name = f.Name;
+            Apply(s, f.Reading);
+        }
+        foreach (var s in slots.ToArray())
+            if (s.Id.Contains(":") && !ids.Contains(s.Id))
+            {
+                Apply(s, new Reading { Present = false });
+                if (!s.Active) slots.Remove(s);
+            }
+    }
+
+    // Gorunen (gizlenmemis) aktif cihazlar
+    List<Slot> ActiveSlots() { return slots.FindAll(s => s.Active && !hidden.Contains(s.Id)); }
+
+    void BuildDeviceMenu(ToolStripMenuItem m)
+    {
+        m.DropDownItems.Clear();
+        var act = slots.FindAll(s => s.Active);
+        if (act.Count == 0) { m.DropDownItems.Add(new ToolStripMenuItem("(bağlı cihaz yok)") { Enabled = false }); return; }
+        foreach (var s in act)
+        {
+            var sl = s;
+            var it = new ToolStripMenuItem(s.Name) { Checked = !hidden.Contains(s.Id), CheckOnClick = true };
+            it.Click += delegate
+            {
+                if (it.Checked) hidden.Remove(sl.Id); else hidden.Add(sl.Id);
+                SaveHidden(hidden);
+                DrawIcon();
+                if (panel != null && panel.Visible) DrawPanel();
+            };
+            m.DropDownItems.Add(it);
+        }
+        m.DropDownItems.Add(new ToolStripSeparator());
+        m.DropDownItems.Add(new ToolStripMenuItem("Simgede ilk 3 cihaz halka olarak görünür") { Enabled = false });
+    }
+
+    const string StateKey = @"Software\BatteryRings";
+    static HashSet<string> LoadHidden()
+    {
+        var h = new HashSet<string>();
+        try
+        {
+            using (var k = Registry.CurrentUser.OpenSubKey(StateKey))
+                if (k != null) foreach (var x in (k.GetValue("Hidden") as string[]) ?? new string[0]) h.Add(x);
+        }
+        catch { }
+        return h;
+    }
+    static void SaveHidden(HashSet<string> h)
+    {
+        try
+        {
+            using (var k = Registry.CurrentUser.CreateSubKey(StateKey))
+                k.SetValue("Hidden", new List<string>(h).ToArray(), RegistryValueKind.MultiString);
+        }
+        catch { }
+    }
 
     // ---------------- Simge ----------------
 
@@ -379,15 +468,17 @@ class BatteryUI : ApplicationContext
 
     static string Short(Slot s)
     {
-        if (s.Kind == Kind.Buds && s.Last.Parts != null && s.Last.Parts.Count >= 2)
+        if (s.Last.Parts != null && s.Last.Parts.Count >= 2)
             return "Buds  S " + Look.Pct(s.Last.Parts[0].Percent) + "  Ğ " + Look.Pct(s.Last.Parts[1].Percent);
-        return (s.Kind == Kind.Headset ? "Kulaklık " : "Mouse ") + Look.Pct(s.Last.Percent) + (s.Last.Charging ? " şarjda" : "");
+        string n = s.Name.Length > 24 ? s.Name.Substring(0, 24) : s.Name;
+        return n + " " + (s.Last.Text ?? Look.Pct(s.Last.Percent)) + (s.Last.Charging ? " şarjda" : "");
     }
 
     // Ic ice halkalar; tek cihazda halka + ortada cihaz simgesi
     Bitmap RingIcon(int S)
     {
         var act = ActiveSlots();
+        if (act.Count > 3) act = act.GetRange(0, 3);
         float k = S / 16f;
         var bmp = new Bitmap(S, S, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(bmp))
@@ -492,6 +583,8 @@ class BatteryUI : ApplicationContext
         catch { return false; }
     }
 
+    static bool Multi(Slot s) { return s.Last.Parts != null && s.Last.Parts.Count > 0; }
+
     const float PW = 272, PPad = 14, RowH = 46, BudsRowH = 74;
 
     void DrawPanel()
@@ -500,7 +593,7 @@ class BatteryUI : ApplicationContext
         if (act.Count == 0) { HidePanel(); return; }
         float k = Look.K;
         float hh = PPad * 2 - 4;
-        foreach (var s in act) hh += (s.Kind == Kind.Buds ? BudsRowH : RowH);
+        foreach (var s in act) hh += (Multi(s) ? BudsRowH : RowH);
         int W = (int)(PW * k), H = (int)(hh * k);
         bool light = Look.Light;
         Color fg = Look.Fg, sub = Look.A(fg, light ? 140 : 150);
@@ -531,9 +624,9 @@ class BatteryUI : ApplicationContext
                     Look.Glyph(g, s.Kind, new RectangleF(L, ty + 1 * k, gs, gs), Look.A(fg, 210));
                     using (var br = new SolidBrush(fg)) g.DrawString(s.Name, fName, br, tx, ty, sf);
 
-                    if (s.Kind != Kind.Buds)
+                    if (!Multi(s))
                     {
-                        PctRight(g, fPct, fSmall, R, ty, r.Percent, r.Charging, fg, sub, sf);
+                        PctRight(g, fPct, fSmall, R, ty, r.Percent, r.Charging, fg, sub, sf, r.Text);
                         Look.Bar(g, new RectangleF(tx, ty + 23 * k, R - tx, 3 * k), r.Percent, Look.BarColor(s, r.Percent, r.Charging), r.Charging, phase);
                     }
                     else
@@ -549,7 +642,7 @@ class BatteryUI : ApplicationContext
                             Look.Bar(g, new RectangleF(cx, cy + 21 * k, colW, 3 * k), p.Percent, Look.BarColor(s, p.Percent, p.Charging), p.Charging, phase);
                         }
                     }
-                    y += (s.Kind == Kind.Buds ? BudsRowH : RowH) * k;
+                    y += (Multi(s) ? BudsRowH : RowH) * k;
                 }
             }
 
@@ -568,10 +661,10 @@ class BatteryUI : ApplicationContext
     }
 
     // Sagdan hizali yuzde; sarjda yaninda kucuk "sarj" isareti
-    static void PctRight(Graphics g, Font f, Font fs, float right, float y, int pct, bool chg, Color fg, Color sub, StringFormat sf)
+    static void PctRight(Graphics g, Font f, Font fs, float right, float y, int pct, bool chg, Color fg, Color sub, StringFormat sf, string text = null)
     {
         float k = Look.K;
-        string t = Look.Pct(pct);
+        string t = text ?? Look.Pct(pct);
         float w = g.MeasureString(t, f, PointF.Empty, sf).Width;
         bool low = !chg && pct >= 0 && pct <= 15;
         using (var br = new SolidBrush(pct < 0 ? sub : low ? Look.LowC : fg)) g.DrawString(t, f, br, right - w, y, sf);

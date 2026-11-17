@@ -163,6 +163,26 @@ class CmfBuds : IDisposable
         if (diff && h != null) h();
     }
 
+    // Su an bagli tum klasik Bluetooth cihazlari: adres (12 hane) -> ad
+    public static Dictionary<string, string> ConnectedClassic()
+    {
+        var map = new Dictionary<string, string>();
+        var sp = new SEARCH { dwSize = Marshal.SizeOf(typeof(SEARCH)), fReturnAuthenticated = true, fReturnRemembered = true, fReturnConnected = true };
+        var di = new DEVINFO { dwSize = Marshal.SizeOf(typeof(DEVINFO)) };
+        IntPtr h = BluetoothFindFirstDevice(ref sp, ref di);
+        if (h == IntPtr.Zero) return map;
+        try
+        {
+            do
+            {
+                if (di.fConnected) map[di.Address.ToString("X12")] = string.IsNullOrEmpty(di.szName) ? "Bluetooth cihazı" : di.szName;
+                di.dwSize = Marshal.SizeOf(typeof(DEVINFO));
+            } while (BluetoothFindNextDevice(h, ref di));
+        }
+        finally { BluetoothFindDeviceClose(h); }
+        return map;
+    }
+
     // Eslesmis ve su an bagli bir CMF Buds var mi?
     static bool FindConnected(out ulong a, out string name)
     {

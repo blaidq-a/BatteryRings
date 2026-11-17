@@ -5,6 +5,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -14,8 +15,10 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("BatteryRings")]
 [assembly: AssemblyCompany("BatteryRings")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
+// Guvenlik: P/Invoke DLL'leri yalnizca System32'den yuklenir (exe'nin yanina konan sahte DLL calismaz)
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
 static class Program
 {
@@ -35,6 +38,8 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        // Guvenlik: sonradan yuklenen DLL'ler icin de uygulama klasoru / calisma klasoru aranmasin
+        try { SetDefaultDllDirectories(0x800); SetDllDirectory(""); } catch { }
         Native.SetProcessDPIAware();
         string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "";
         if (mode == "/test") { SelfTest(); return; }
@@ -77,7 +82,16 @@ static class Program
         File.WriteAllText("test_sonuc.txt",
             "kulaklik present=" + h.Present + " pil=" + h.Percent + " sarj=" + h.Charging + Environment.NewLine +
             "mouse present=" + m.Present + " pil=" + m.Percent + " sarj=" + m.Charging + " mv=" + m.MilliVolt + Environment.NewLine +
-            "buds present=" + b.Present + " pil=" + b.Percent + bp);
+            "buds present=" + b.Present + " pil=" + b.Percent + bp + Environment.NewLine +
+            GenericLines());
+    }
+
+    static string GenericLines()
+    {
+        string t = "";
+        foreach (var f in GenericDevices.Read())
+            t += "genel " + f.Kind + " pil=" + f.Reading.Percent + (f.Reading.Text != null ? " (" + f.Reading.Text + ")" : "") + Environment.NewLine;
+        return t;
     }
 
     // Calisan diger kopyalari kapat (guncelleme / kaldirma icin)
@@ -86,7 +100,17 @@ static class Program
         int me = Process.GetCurrentProcess().Id;
         foreach (var name in new[] { AppName, "PilGostergesi", "BarracudaPil" })
             foreach (var p in Process.GetProcessesByName(name))
-                if (p.Id != me) { try { p.Kill(); p.WaitForExit(3000); } catch { } }
+            {
+                if (p.Id == me) continue;
+                try
+                {
+                    // ayni adli baska bir programi kapatmamak icin urun adini kontrol et
+                    string prod = FileVersionInfo.GetVersionInfo(p.MainModule.FileName).ProductName ?? "";
+                    if (prod != AppName && prod != "Pil Gostergesi") continue;
+                    p.Kill(); p.WaitForExit(3000);
+                }
+                catch { }
+            }
     }
 
     static void Install(bool quiet)
@@ -117,6 +141,7 @@ static class Program
         StopOthers();
         try { using (var k = Registry.CurrentUser.OpenSubKey(RunKey, true)) if (k != null) k.DeleteValue(AppName, false); } catch { }
         try { if (File.Exists(Shortcut)) File.Delete(Shortcut); } catch { }
+        try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\BatteryRings", false); } catch { }
         try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\PilGostergesi", false); } catch { }
         // calisan exe kendini silemez: kapandiktan sonra klasoru sil
         try
@@ -133,6 +158,9 @@ static class Program
     {
         try { using (var k = Registry.CurrentUser.OpenSubKey(RunKey, true)) if (k != null) k.DeleteValue("BarracudaPil", false); } catch { }
     }
+
+    [DllImport("kernel32.dll")] static extern bool SetDefaultDllDirectories(int flags);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool SetDllDirectory(string path);
 
     static void MakeShortcut()
     {

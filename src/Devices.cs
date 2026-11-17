@@ -178,6 +178,7 @@ class Reading
     public bool Charging;
     public int MilliVolt;
     public System.Collections.Generic.List<Part> Parts; // cok pilli cihazlar (sol/sag/kutu)
+    public string Text;      // yuzde yerine gosterilecek metin (orn. kademeli seviye: "Orta")
 }
 
 abstract class Device : IDisposable
@@ -302,7 +303,7 @@ class AtkMouse : Device
         while (p < 100 && ChargeMinutes(from, p + 1) <= minutes) p++;
         return p;
     }
-    const string StateKey = @"Software\PilGostergesi";
+    const string StateKey = @"Software\BatteryRings";
 
     public AtkMouse() { LoadState(); }
 
