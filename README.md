@@ -3,6 +3,8 @@
 Shows the battery levels of your wireless devices in the Windows taskbar as **one icon of concentric rings**.
 Hover over (or click) the icon to see every device in detail.
 
+![The tray icon: outer ring = first device](docs/icon.png)
+
 ![Battery panel and settings](docs/panel.png)
 
 ![The six themes](docs/themes.png)

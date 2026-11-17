@@ -739,9 +739,10 @@ class BatteryUI : ApplicationContext
     }
 
     // Ic ice halkalar; tek cihazda halka + ortada cihaz simgesi
-    Bitmap RingIcon(int S)
+    Bitmap RingIcon(int S) { return RingIcon(S, ActiveSlots(), phase); }
+
+    static Bitmap RingIcon(int S, List<Slot> act, float phase)
     {
-        var act = ActiveSlots();
         if (act.Count > 3) act = act.GetRange(0, 3);
         float k = S / 16f;
         var bmp = new Bitmap(S, S, PixelFormat.Format32bppArgb);
@@ -761,7 +762,7 @@ class BatteryUI : ApplicationContext
             else if (act.Count == 1)
             {
                 float sw = 1.9f * k, r1 = c - sw / 2f - 0.15f * k;
-                Ring(g, new RectangleF(c - r1, c - r1, r1 * 2, r1 * 2), sw, act[0], k);
+                Ring(g, new RectangleF(c - r1, c - r1, r1 * 2, r1 * 2), sw, act[0], k, phase);
                 float gs = 8.4f * k;
                 Look.Glyph(g, act[0].Kind, new RectangleF(c - gs / 2, c - gs / 2, gs, gs), Look.Fg);
             }
@@ -772,7 +773,7 @@ class BatteryUI : ApplicationContext
                 float r = c - sw / 2f - 0.1f * k;
                 foreach (var s in act)
                 {
-                    Ring(g, new RectangleF(c - r, c - r, r * 2, r * 2), sw, s, k);
+                    Ring(g, new RectangleF(c - r, c - r, r * 2, r * 2), sw, s, k, phase);
                     r -= sw + gap;
                 }
                 if (act.Count == 2)
@@ -783,7 +784,7 @@ class BatteryUI : ApplicationContext
         return bmp;
     }
 
-    void Ring(Graphics g, RectangleF rc, float sw, Slot s, float k)
+    static void Ring(Graphics g, RectangleF rc, float sw, Slot s, float k, float phase)
     {
         var r = s.Last;
         int p = Math.Max(0, Math.Min(100, r.Percent));
@@ -803,6 +804,47 @@ class BatteryUI : ApplicationContext
             for (int i = 0; i < 8; i++)
                 using (var pen = new Pen(Color.FromArgb((int)(230 * (1 - i / 8f)), 255, 255, 235), sw) { StartCap = LineCap.Round, EndCap = LineCap.Round })
                     g.DrawArc(pen, rc, headAng - i * 9f, 8f);
+        }
+    }
+
+    // README picture of the tray icon in its common states (Program "/icons")
+    public static void SaveIconSheet(string path)
+    {
+        Func<string, Kind, int, int, bool, Slot> mk = (n, kd, ci, pct, chg) =>
+            new Slot { Name = n, Kind = kd, ColorIndex = ci, Active = true, Last = new Reading { Present = true, Percent = pct, Charging = chg } };
+        var states = new List<KeyValuePair<string, List<Slot>>> {
+            new KeyValuePair<string, List<Slot>>("Headset + mouse", new List<Slot> { mk("h", Kind.Headset, 0, 65, false), mk("m", Kind.Mouse, 1, 100, false) }),
+            new KeyValuePair<string, List<Slot>>("Three devices", new List<Slot> { mk("h", Kind.Headset, 0, 65, false), mk("m", Kind.Mouse, 1, 80, false), mk("b", Kind.Buds, 2, 45, false) }),
+            new KeyValuePair<string, List<Slot>>("One device", new List<Slot> { mk("m", Kind.Mouse, 1, 70, false) }),
+            new KeyValuePair<string, List<Slot>>("Charging", new List<Slot> { mk("h", Kind.Headset, 0, 55, true), mk("m", Kind.Mouse, 1, 100, false) }),
+            new KeyValuePair<string, List<Slot>>("Low battery", new List<Slot> { mk("h", Kind.Headset, 0, 60, false), mk("m", Kind.Mouse, 1, 10, false) }),
+            new KeyValuePair<string, List<Slot>>("No device", new List<Slot>()),
+        };
+        Look.Light = false;
+        int big = 96, small = 16, cell = 150, W = cell * states.Count + 40, H = 230;
+        using (var sheet = new Bitmap(W, H, PixelFormat.Format32bppArgb))
+        using (var g = Graphics.FromImage(sheet))
+        using (var f = new Font("Segoe UI Semibold", 13f, GraphicsUnit.Pixel))
+        using (var fs = new Font("Segoe UI", 11.5f, GraphicsUnit.Pixel))
+        using (var sf = new StringFormat { Alignment = StringAlignment.Center })
+        {
+            var all = new Rectangle(0, 0, W, H);
+            using (var lg = new LinearGradientBrush(all, Color.FromArgb(255, 30, 36, 58), Color.FromArgb(255, 58, 40, 70), 35f)) g.FillRectangle(lg, all);
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            // taskbar strip with the real-size icons
+            using (var br = new SolidBrush(Color.FromArgb(255, 28, 28, 30))) g.FillRectangle(br, 0, H - 44, W, 44);
+            for (int i = 0; i < states.Count; i++)
+            {
+                float cx = 20 + i * cell + cell / 2f;
+                using (var b = RingIcon(big, states[i].Value, 0.35f)) g.DrawImage(b, cx - big / 2f, 18, big, big);
+                using (var br = new SolidBrush(Color.White)) g.DrawString(states[i].Key, f, br, new RectangleF(cx - cell / 2f, 126, cell, 20), sf);
+                using (var b = RingIcon(small, states[i].Value, 0.35f)) g.DrawImage(b, (int)(cx - small / 2f), H - 22 - small / 2, small, small);
+            }
+            using (var br = new SolidBrush(Color.FromArgb(150, 255, 255, 255)))
+                g.DrawString("actual size in the taskbar", fs, br, new RectangleF(0, H - 64, W, 18), sf);
+            sheet.Save(path);
         }
     }
 

@@ -43,6 +43,7 @@ static class Program
         Native.SetProcessDPIAware();
         string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "";
         if (mode == "/test") { SelfTest(); return; }
+        if (mode == "/icons") { BatteryUI.SaveIconSheet(args.Length > 1 ? args[1] : "icons.png"); return; }
         if (mode == "/report") { File.WriteAllText("device_report.txt", Diagnostics.Report()); return; }
         if (mode == "/checkupdate")
         {
