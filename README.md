@@ -43,6 +43,7 @@ Click the gear in the panel:
 - Start with Windows
 - Open the panel when hovering the icon (otherwise click it)
 - Theme: Default (follows Windows), Sakura, Aqua, Midnight, Forest, Sunset
+- Device order: drag a device up or down; the top one is the outer ring
 - Low battery alerts
 - Install updates automatically, and a **Check for updates** button
 - Show or hide each device

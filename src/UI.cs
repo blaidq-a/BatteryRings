@@ -333,6 +333,8 @@ class BatteryUI : ApplicationContext
     readonly System.Windows.Forms.Timer anim = new System.Windows.Forms.Timer();
     readonly System.Windows.Forms.Timer watch = new System.Windows.Forms.Timer();
     readonly System.Windows.Forms.Timer hoverDelay = new System.Windows.Forms.Timer();
+    DateTime hoverStart;
+    const int HoverOpenMs = 550;
     readonly ContextMenuStrip menu = new ContextMenuStrip();
     int busy;
     float phase;
@@ -356,7 +358,10 @@ class BatteryUI : ApplicationContext
         icon.MouseMove += delegate
         {
             lastIconMove = DateTime.Now;
-            if (panel == null || !panel.Visible) { if (Settings.HoverOpen && !hoverDelay.Enabled) hoverDelay.Start(); }
+            if (panel == null || !panel.Visible)
+            {
+                if (Settings.HoverOpen && !hoverDelay.Enabled) { hoverStart = DateTime.Now; hoverDelay.Start(); }
+            }
             else lastInside = DateTime.Now;
         };
         icon.MouseClick += (o, e) =>
@@ -376,11 +381,14 @@ class BatteryUI : ApplicationContext
         anim.Tick += delegate { phase += 0.02f; if (phase > 1000) phase = 0; DrawIcon(); if (panel != null && panel.Visible) DrawPanel(); };
         watch.Interval = 100;
         watch.Tick += delegate { WatchPanel(); };
-        hoverDelay.Interval = 250;
+        // Open on hover only when the mouse rests on the icon (~0.55 s), not when it just passes over it
+        hoverDelay.Interval = 100;
         hoverDelay.Tick += delegate
         {
-            hoverDelay.Stop();
-            if ((DateTime.Now - lastIconMove).TotalMilliseconds < 400) ShowPanel(false);
+            RECT ir;
+            bool over = IconRect(out ir) ? ir.Contains(Cursor.Position) : (DateTime.Now - lastIconMove).TotalMilliseconds < 200;
+            if (!over || (panel != null && panel.Visible)) { hoverDelay.Stop(); return; }
+            if ((DateTime.Now - hoverStart).TotalMilliseconds >= HoverOpenMs) { hoverDelay.Stop(); ShowPanel(false); }
         };
 
         SystemEvents.UserPreferenceChanged += OnPref;
@@ -480,7 +488,8 @@ class BatteryUI : ApplicationContext
         d.Active = (DateTime.Now - d.LastOk).TotalSeconds <= GraceSeconds;
         if (!d.Active) return;
         if (d.Last.Charging) { d.LastWarn = 101; return; }
-        foreach (int lvl in new[] { 20, 10, 5 })
+        // lowest threshold first: starting at 8% gives one alert (10%), not two in a row
+        foreach (int lvl in new[] { 5, 10, 20 })
             if (d.Last.Percent <= lvl && d.LastWarn > lvl)
             {
                 d.LastWarn = lvl;
@@ -542,7 +551,51 @@ class BatteryUI : ApplicationContext
     }
 
     // Gorunen (gizlenmemis) aktif cihazlar
-    List<Slot> ActiveSlots() { return slots.FindAll(s => s.Active && !hidden.Contains(s.Id)); }
+    List<Slot> ActiveSlots() { return Sorted(slots.FindAll(s => s.Active && !hidden.Contains(s.Id))); }
+
+    // ---- user order (Settings > drag): first device = outer ring, top of the panel ----
+    List<string> order = LoadOrder();
+
+    List<Slot> Sorted(List<Slot> list)
+    {
+        var res = new List<Slot>(list);
+        var pos = new Dictionary<Slot, int>();
+        for (int i = 0; i < list.Count; i++)
+        {
+            int o = order.IndexOf(list[i].Id);
+            pos[list[i]] = o >= 0 ? o : 10000 + slots.IndexOf(list[i]);
+        }
+        res.Sort((a, b) => pos[a].CompareTo(pos[b]));
+        return res;
+    }
+
+    void MoveDevice(Slot s, int target, List<Slot> shown)
+    {
+        var ids = new List<string>();
+        foreach (var x in shown) if (x != s) ids.Add(x.Id);
+        ids.Insert(Math.Max(0, Math.Min(target, ids.Count)), s.Id);
+        foreach (var id in order) if (!ids.Contains(id)) ids.Add(id); // keep devices that are not connected now
+        order = ids;
+        try { using (var k = Registry.CurrentUser.CreateSubKey(StateKey)) k.SetValue("Order", order.ToArray(), RegistryValueKind.MultiString); } catch { }
+        DrawIcon();
+    }
+
+    static List<string> LoadOrder()
+    {
+        try
+        {
+            using (var k = Registry.CurrentUser.OpenSubKey(@"Software\BatteryRings"))
+                if (k != null) { var v = k.GetValue("Order") as string[]; if (v != null) return new List<string>(v); }
+        }
+        catch { }
+        return new List<string>();
+    }
+
+    // drag state
+    Slot dragSlot;
+    float dragStartY, dragY;
+    bool dragging, suppressClick;
+    readonly List<KeyValuePair<Slot, RectangleF>> devRows = new List<KeyValuePair<Slot, RectangleF>>();
 
     const string StateKey = @"Software\BatteryRings";
     static HashSet<string> LoadHidden()
@@ -673,9 +726,33 @@ class BatteryUI : ApplicationContext
         if (panel == null || panel.IsDisposed)
         {
             panel = new LayeredWindow(false);
+            panel.MouseDown += (o, e) =>
+            {
+                if (e.Button != MouseButtons.Left || !settingsView) return;
+                float k = Look.K;
+                foreach (var kv in devRows)
+                    if (kv.Value.Contains(e.Location) && e.X < kv.Value.Right - 86 * k) { dragSlot = kv.Key; dragStartY = e.Y; }
+            };
+            panel.MouseUp += (o, e) =>
+            {
+                if (dragging)
+                {
+                    var shown = Sorted(slots.FindAll(x => x.Active));
+                    MoveDevice(dragSlot, DropIndex(shown), shown);
+                    suppressClick = true;
+                }
+                dragging = false; dragSlot = null;
+                panel.Cursor = Cursors.Default;
+                if (panel.Visible) DrawPanel();
+            };
             panel.MouseMove += (o, e) =>
             {
                 lastInside = DateTime.Now;
+                if (dragSlot != null && (Control.MouseButtons & MouseButtons.Left) != 0)
+                {
+                    if (!dragging && Math.Abs(e.Y - dragStartY) > 4 * Look.K) dragging = true;
+                    if (dragging) { dragY = e.Y; hot = -1; panel.Cursor = Cursors.SizeNS; DrawPanel(); return; }
+                }
                 int h = hits.FindIndex(x => x.R.Contains(e.Location));
                 panel.Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
                 if (h != hot) { hot = h; DrawPanel(); }
@@ -685,6 +762,7 @@ class BatteryUI : ApplicationContext
             {
                 if (e.Button != MouseButtons.Left) return;
                 pinned = true;
+                if (suppressClick) { suppressClick = false; return; } // end of a drag, not a click
                 var h = hits.Find(x => x.R.Contains(e.Location));
                 if (h != null) { h.A(); hot = -1; if (panel.Visible) DrawPanel(); }
             };
@@ -710,13 +788,39 @@ class BatteryUI : ApplicationContext
     void WatchPanel()
     {
         if (panel == null || !panel.Visible) { watch.Stop(); return; }
+        if (dragSlot != null) { lastInside = DateTime.Now; return; } // a drag may leave the panel; never close mid-drag
         var c = Cursor.Position;
         RECT b, ir;
+        bool overPanel = GetWindowRect(panel.Handle, out b) && b.Contains(c);
         bool overIcon = (DateTime.Now - lastIconMove).TotalMilliseconds < 150 || (IconRect(out ir) && ir.Contains(c));
-        bool inside = overIcon || (GetWindowRect(panel.Handle, out b) && b.Contains(c));
+        bool inside = overIcon || overPanel;
         if (inside) lastInside = DateTime.Now;
+        // auto-hiding taskbar slid away: the panel would float on its own, so close it once the mouse is not on it
+        if (TaskbarHidden() && !overPanel && (DateTime.Now - lastInside).TotalMilliseconds > 250) { HidePanel(); return; }
         if (pinned) { if (!inside && Control.MouseButtons != MouseButtons.None) HidePanel(); }
         else if ((DateTime.Now - lastInside).TotalMilliseconds > 400) HidePanel();
+    }
+
+    // Is the (auto-hiding) taskbar currently slid off the screen?
+    static bool TaskbarHidden()
+    {
+        RECT t;
+        IntPtr h = FindWindow("Shell_TrayWnd", null);
+        if (h == IntPtr.Zero || !GetWindowRect(h, out t)) return false;
+        var scr = Screen.FromPoint(new Point((t.l + t.r) / 2, (t.t + t.b) / 2)).Bounds;
+        int w = Math.Min(t.r, scr.Right) - Math.Max(t.l, scr.Left);
+        int hgt = Math.Min(t.b, scr.Bottom) - Math.Max(t.t, scr.Top);
+        return w < 8 || hgt < 8;
+    }
+
+    // Icon position for placing the panel. While the taskbar is hidden the icon is off screen,
+    // so use where it was last seen; the panel then stays put instead of jumping.
+    RECT lastIcon; bool haveLastIcon;
+    bool AnchorRect(out RECT r)
+    {
+        if (IconRect(out r) && !TaskbarHidden()) { lastIcon = r; haveLastIcon = true; return true; }
+        r = lastIcon;
+        return haveLastIcon;
     }
 
     // Where the tray icon is on screen (Shell_NotifyIconGetRect)
@@ -742,7 +846,7 @@ class BatteryUI : ApplicationContext
     {
         if (panel == null) return;
         float k = Look.K;
-        var devs = settingsView ? slots.FindAll(s => s.Active) : ActiveSlots();
+        var devs = settingsView ? Sorted(slots.FindAll(s => s.Active)) : ActiveSlots();
         if (!settingsView && devs.Count == 0) { HidePanel(); return; }
 
         float hh = HeadH;
@@ -778,12 +882,19 @@ class BatteryUI : ApplicationContext
             RECT ir;
             Point anchor;
             int top;
-            if (IconRect(out ir)) { anchor = new Point((ir.l + ir.r) / 2, ir.t); top = ir.t; }
+            bool below = false;
+            if (AnchorRect(out ir))
+            {
+                anchor = new Point((ir.l + ir.r) / 2, ir.t); top = ir.t;
+                // taskbar at the top of the screen: open the panel below the icon
+                var sb = Screen.FromPoint(anchor).Bounds;
+                if (ir.t < sb.Top + sb.Height / 2) { below = true; top = ir.b; }
+            }
             else if (panel.Visible) { anchor = new Point(panel.Left + panel.Width / 2, panel.Bottom + 12); top = panel.Bottom + 12; }
             else { anchor = Cursor.Position; top = Cursor.Position.Y - 12; }
             var scr = Screen.FromPoint(anchor).Bounds;
             int px = Math.Max(scr.Left + 8, Math.Min(anchor.X - W / 2, scr.Right - W - 8));
-            int py = Math.Max(scr.Top + 8, top - H - (int)(12 * k));
+            int py = below ? Math.Min(scr.Bottom - H - 8, top + (int)(12 * k)) : Math.Max(scr.Top + 8, top - H - (int)(12 * k));
             panel.Location = new Point(px, py);
             panel.Show(bmp);
         }
@@ -876,22 +987,39 @@ class BatteryUI : ApplicationContext
             ThemePicker(g, f, L, R, ref y);
 
             y += 10 * k;
-            using (var br = new SolidBrush(sub)) g.DrawString("SHOW DEVICES", fSmall, br, L, y, sf);
+            using (var br = new SolidBrush(sub)) g.DrawString("DEVICES  ·  DRAG TO REORDER, TOP = OUTER RING", fSmall, br, L, y, sf);
             y += 20 * k;
             if (devs.Count == 0)
             {
                 using (var br = new SolidBrush(sub)) g.DrawString("No devices connected", f, br, L, y + 10 * k, sf);
                 y += SetRowH * k;
             }
+            devRows.Clear();
             foreach (var s in devs)
             {
                 var sl = s;
+                devRows.Add(new KeyValuePair<Slot, RectangleF>(s, new RectangleF(L - 8 * k, y, R - L + 16 * k, SetRowH * k)));
+                if (dragging && s == dragSlot)
+                    using (var p = Look.Round(new RectangleF(L - 8 * k, y, R - L + 16 * k, SetRowH * k), 5 * k))
+                    {
+                        using (var br = new SolidBrush(Look.A(Look.Accent, 40))) g.FillPath(br, p);
+                        using (var pen = new Pen(Look.Accent, 1.2f * k)) g.DrawPath(pen, p);
+                    }
                 Toggle(g, f, L, R, ref y, s, s.Name, !hidden.Contains(s.Id), delegate
                 {
                     if (hidden.Contains(sl.Id)) hidden.Remove(sl.Id); else hidden.Add(sl.Id);
                     SaveHidden(hidden);
                     DrawIcon();
                 });
+            }
+            if (dragging && devRows.Count > 1)
+            {
+                // where the dragged device will land
+                var others = devRows.FindAll(dr => dr.Key != dragSlot);
+                int ti = DropIndex(devs);
+                float ly = ti < others.Count ? others[ti].Value.Top : others[others.Count - 1].Value.Bottom;
+                using (var pen = new Pen(Look.Accent, 2.5f * k) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    g.DrawLine(pen, L - 4 * k, ly, R + 4 * k, ly);
             }
 
             // updates
@@ -960,6 +1088,15 @@ class BatteryUI : ApplicationContext
     }
 
     // One settings row: [optional device glyph] label ........ [switch]
+    // position among the other devices where the dragged one would be dropped
+    int DropIndex(List<Slot> shown)
+    {
+        int i = 0;
+        foreach (var kv in devRows)
+            if (kv.Key != dragSlot && kv.Value.Top + kv.Value.Height / 2 < dragY) i++;
+        return i;
+    }
+
     void Toggle(Graphics g, Font f, float L, float R, ref float y, Slot dev, string label, bool on, Action a)
     {
         float k = Look.K;
@@ -974,8 +1111,10 @@ class BatteryUI : ApplicationContext
             var dv = dev;
             hits.Add(new Hit { R = pr, A = delegate { EditDevice(dv); } });
         }
+        // only the switch itself toggles; clicking the name does nothing (and starts a drag for devices)
+        var swHit = new RectangleF(R - 40 * k - 6 * k, y + 4 * k, 52 * k, SetRowH * k - 8 * k);
         int idx = hits.Count;
-        hits.Add(new Hit { R = row, A = a });
+        hits.Add(new Hit { R = swHit, A = a });
         if (hot == idx || (penHit >= 0 && hot == penHit))
             using (var p = Look.Round(row, 5 * k))
             using (var br = new SolidBrush(Look.A(Look.Fg, Look.Light ? 12 : 14))) g.FillPath(br, p);
@@ -990,8 +1129,10 @@ class BatteryUI : ApplicationContext
         float tx = L;
         if (dev != null)
         {
-            Look.Glyph(g, dev.Kind, new RectangleF(L, y + 12 * k, 16 * k, 16 * k), Look.A(Look.Fg, 200));
-            tx += 28 * k;
+            // grip: the row can be dragged up or down
+            Look.Icon(g, "\uE700", new RectangleF(L - 4 * k, y + 13 * k, 14 * k, 14 * k), 10 * k, Look.A(Look.Fg, hot == idx ? 170 : 90));
+            Look.Glyph(g, dev.Kind, new RectangleF(L + 16 * k, y + 12 * k, 16 * k, 16 * k), Look.A(Look.Fg, 200));
+            tx += 44 * k;
         }
         string t = label;
         float maxW = R - tx - (dev != null ? 86 : 52) * k;
@@ -1080,6 +1221,7 @@ class BatteryUI : ApplicationContext
     struct NOTIFYICONIDENTIFIER { public int cbSize; public IntPtr hWnd; public int uID; public Guid guidItem; }
     [DllImport("shell32.dll")] static extern int Shell_NotifyIconGetRect(ref NOTIFYICONIDENTIFIER id, out RECT r);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string cls, string name);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, int f);
     [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
 }
