@@ -577,8 +577,9 @@ class BatteryUI : ApplicationContext
         d.Active = (DateTime.Now - d.LastOk).TotalSeconds <= GraceSeconds;
         if (!d.Active) return;
         if (d.Last.Charging) { d.LastWarn = 101; return; }
-        // lowest threshold first: starting at 8% gives one alert (10%), not two in a row
-        foreach (int lvl in new[] { 5, 10, 20 })
+        // 25 / 10 / 5: some devices (e.g. ASUS Pugio II) only report 0-25-50-75-100, so 20 would never trigger.
+        // Lowest threshold first: starting at 8% gives one alert (10%), not two in a row.
+        foreach (int lvl in new[] { 5, 10, 25 })
             if (d.Last.Percent <= lvl && d.LastWarn > lvl)
             {
                 d.LastWarn = lvl;
@@ -1206,9 +1207,11 @@ class BatteryUI : ApplicationContext
             var inner = RectangleF.Inflate(cell, -4 * k, -4 * k);
             if (t.System)
             {
-                // half light / half dark circle = "follow Windows"
-                using (var br = new SolidBrush(Color.FromArgb(255, 240, 240, 240))) g.FillPie(br, inner.X, inner.Y, inner.Width, inner.Height, 90, 180);
-                using (var br = new SolidBrush(Color.FromArgb(255, 40, 40, 40))) g.FillPie(br, inner.X, inner.Y, inner.Width, inner.Height, 270, 180);
+                // same look as the others: dark disc with a dot; the dot is half light / half dark = "follow Windows"
+                using (var br = new SolidBrush(Color.FromArgb(255, 36, 36, 36))) g.FillEllipse(br, inner);
+                var dot = RectangleF.Inflate(inner, -inner.Width * 0.22f, -inner.Height * 0.22f);
+                using (var br = new SolidBrush(Color.FromArgb(255, 245, 245, 245))) g.FillPie(br, dot.X, dot.Y, dot.Width, dot.Height, 90, 180);
+                using (var br = new SolidBrush(Color.FromArgb(255, 90, 90, 90))) g.FillPie(br, dot.X, dot.Y, dot.Width, dot.Height, 270, 180);
             }
             else
             {

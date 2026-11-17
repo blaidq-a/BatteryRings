@@ -31,7 +31,8 @@ Hover over (or click) the icon to see every device in detail.
 | SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless | – |
 | HyperX | Cloud Alpha Wireless, Cloud Flight | – |
 | Corsair | Void family wireless headsets | – |
-| ASUS | ROG / TUF wireless mice: Keris, Gladius II / III, Chakram, Harpe Ace, Pugio II, Spatha X, Strix Carry / Impact, TUF M4, MD200 / MD301 | – |
+| ASUS | ROG Pugio II | ✅ |
+| ASUS | Other ROG / TUF wireless mice: Keris, Gladius II / III, Chakram, Harpe Ace, Spatha X, Strix Carry / Impact, TUF M4, MD200 / MD301 | – |
 
 Untested rows follow public protocol notes (see *Thanks*). If you own one, please open an issue saying whether it works.
 
@@ -39,7 +40,7 @@ Untested rows follow public protocol notes (see *Thanks*). If you own one, pleas
 - Devices that are not connected are not shown. With a single device, its icon sits in the middle of the ring;
   with none, the icon is an empty ring and the panel says "No devices found".
 - While charging, the ring turns yellow with a moving light; below 15% it turns red and pulses.
-- Optional alerts at 20%, 10% and 5%.
+- Optional alerts at 25%, 10% and 5%.
 
 ## Settings
 
