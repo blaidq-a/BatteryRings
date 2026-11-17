@@ -3,6 +3,7 @@
 //   - Razer mice (90-byte feature reports, as documented by OpenRazer)
 //   - Headsets from SteelSeries, HyperX and Corsair (commands as documented by HeadsetControl)
 //   - ASUS ROG / TUF wireless mice (command 0x12 0x07, as used by G-Helper)
+//   - Sony DualShock 4 and DualSense controllers (battery in the input report, as read by the Linux hid-playstation driver)
 // None of these were tested on real hardware here; they follow the published protocol notes.
 // A slow scan runs on its own thread so device timeouts never hold up the UI.
 using System;
@@ -38,6 +39,7 @@ static class VendorDevices
             try { RazerMice.Scan(list); } catch { }
             try { Headsets.Scan(list); } catch { }
             try { AsusMice.Scan(list); } catch { }
+            try { PlayStation.Scan(list); } catch { }
             try { HidBattery.Scan(list); } catch { }
             lock (lk) cache = list;
             Thread.Sleep(20000);
@@ -624,5 +626,71 @@ static class Diagnostics
         }
         return "https://github.com/blaidq-a/BatteryRings/issues/new?labels=bug&title=" + Uri.EscapeDataString(first)
             + "&body=" + Uri.EscapeDataString(body);
+    }
+}
+
+// ---------------- PlayStation controllers ----------------
+static class PlayStation
+{
+    public static void Scan(List<Found> list)
+    {
+        var done = new HashSet<int>();
+        foreach (var p in Native.HidPaths("054c"))
+        {
+            string lp = p.ToLowerInvariant();
+            if (!(lp.Contains("vid_054c") || lp.Contains("vid&0002054c"))) continue;
+            bool bt = lp.Contains("vid&0002054c");
+            int pi = lp.IndexOf(bt ? "pid&" : "pid_");
+            int pid;
+            if (pi < 0 || !int.TryParse(lp.Substring(pi + 4, 4), System.Globalization.NumberStyles.HexNumber, null, out pid)) continue;
+            bool sense = pid == 0x0CE6 || pid == 0x0DF2;                    // DualSense, DualSense Edge
+            bool ds4 = pid == 0x05C4 || pid == 0x09CC || pid == 0x0BA0;    // DualShock 4 v1 / v2 / USB wireless adapter
+            if ((!sense && !ds4) || done.Contains(pid)) continue;
+            Native.HIDP_CAPS c;
+            if (!Native.GetCaps(p, out c) || c.UsagePage != 1 || c.Usage != 5) continue;
+            var r = Read(p, c, sense, bt);
+            if (r == null) continue;
+            done.Add(pid);
+            string name = sense ? (pid == 0x0DF2 ? "DualSense Edge" : "DualSense") : "DualShock 4";
+            list.Add(new Found { Id = "ps:" + pid.ToString("x4"), Name = name, Kind = Kind.Gamepad, Reading = r });
+        }
+    }
+
+    static Reading Read(string path, Native.HIDP_CAPS c, bool sense, bool bt)
+    {
+        var l = HidLink.Open(path, Math.Max(1, (int)c.OutputReportByteLength));
+        if (l == null) return null;
+        try
+        {
+            if (bt && c.FeatureReportByteLength > 0)
+            {
+                // over Bluetooth the full report (with battery) is only sent after the calibration feature report is read
+                using (var h = Native.CreateFile(path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero))
+                {
+                    var f = new byte[c.FeatureReportByteLength];
+                    f[0] = (byte)(sense ? 0x05 : 0x02);
+                    VendorDevices.HidD_GetFeature(h, f, f.Length);
+                }
+            }
+            byte want = (byte)(bt ? (sense ? 0x31 : 0x11) : 0x01);
+            int at = sense ? (bt ? 54 : 53) : (bt ? 32 : 30);
+            l.Drain();
+            var d = l.Wait(b => b[0] == want, 1500);
+            if (d == null || d.Length <= at) return null;
+            int st = d[at];
+            if (sense)
+            {
+                int lvl = st & 0x0F, chg = st >> 4;           // 0 discharging, 1 charging, 2 full
+                return new Reading { Present = true, Percent = chg == 2 ? 100 : Math.Min(100, lvl * 10 + 5), Charging = chg == 1 };
+            }
+            else
+            {
+                int lvl = st & 0x0F; bool cable = (st & 0x10) != 0;
+                if (!cable) return new Reading { Present = true, Percent = Math.Min(100, lvl * 10 + 5) };
+                return new Reading { Present = true, Percent = lvl >= 10 ? 100 : lvl * 10 + 5, Charging = lvl < 11 };
+            }
+        }
+        catch { return null; }
+        finally { l.Dispose(); }
     }
 }

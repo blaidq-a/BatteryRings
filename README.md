@@ -22,7 +22,11 @@ Hover over (or click) the icon to see every device in detail.
 | Razer | Barracuda X (2022) headset on its 2.4 GHz dongle, with charging state | ✅ |
 | Razer | Wireless mice and keyboards (dongle or cable) | – |
 | ATK / Compx | ATK A9 Ultimate: a steady percentage computed from the battery voltage (curve measured on this model). Other ATK models and other mice on Compx 2.4 GHz dongles (VID 373B) show the percentage the mouse reports. The dongle does not tell the mouse's name, so it is learned the first time the mouse is plugged in by cable | ✅ |
-| Nothing / CMF | CMF Buds Pro 2 (other CMF Buds models use the same protocol): left, right and case separately | ✅ |
+| Nothing / CMF | CMF Buds Pro 2: left, right and case separately | ✅ |
+| Nothing / CMF | Nothing Ear (1) / (2) / (a) / (3) / (open) / (stick), other CMF Buds, Nothing and CMF headphones (same protocol) | – |
+| Apple | AirPods, AirPods Pro, AirPods Max and Beats: left, right and case in 10% steps, read from the Bluetooth LE broadcast while they are connected to this PC | – |
+| Samsung | Galaxy Buds, Buds+, Live, Pro, Buds2 / 2 Pro, Buds FE, Buds3 / 3 Pro: left, right and case | – |
+| Sony | DualSense, DualSense Edge and DualShock 4 controllers, by cable or Bluetooth | – |
 | Logitech | Mice, keyboards and G headsets on Unifying, Bolt or Lightspeed receivers, by cable or Bluetooth (HID++ 2.0) | – |
 | SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless | – |
 | HyperX | Cloud Alpha Wireless, Cloud Flight | – |
@@ -75,7 +79,7 @@ Publishing a release: attach both `dist\BatteryRings.exe` and `BatteryRings.exe.
 
 ## Build
 
-Nothing to install: the .NET Framework 4 compiler that ships with Windows is enough.
+Nothing to install: the .NET Framework 4 compiler and the Windows Runtime metadata that ship with Windows 10 / 11 are enough.
 
 ```bat
 build.cmd
@@ -106,14 +110,17 @@ user names or file paths.
 | ATK mouse | Compx HID reports (VID 373B, usage page 0xFF02). The firmware percentage jumps around, so the percentage is computed from **voltage** (LiHV curve, full ≈ 4.35 V) and filtered; while charging it rises at the measured charge rate |
 | CMF Buds | Nothing protocol over Bluetooth RFCOMM (service `aeac4a03-dff5-498f-843a-34487cf133eb`, battery command `0xC007`) |
 | Bluetooth (generic) | Windows device property `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2` (SetupAPI) |
-| Controllers | `XInputGetBatteryInformation` |
+| Controllers | `XInputGetBatteryInformation`; PlayStation: battery nibble of the input report |
+| AirPods / Beats | Apple "proximity pairing" Bluetooth LE advertisement (company `0x004C`, type `0x07`), strongest signal while an AirPods/Beats device is connected |
+| Galaxy Buds | Bluetooth RFCOMM status messages `0x60` / `0x61` pushed by the buds |
 | Logitech | HID++ 2.0 features `0x1004` Unified Battery, `0x1000` Battery Status, `0x1001` Battery Voltage, `0x1F20` ADC (headsets) |
 | Razer mice / keyboards | 90-byte feature report, power class `0x07`: `0x80` level, `0x84` charging |
 | SteelSeries / HyperX / Corsair | Vendor HID commands per model family |
 | Standard HID | Usages Battery Strength (`0x06:0x20`) and State of Charge (`0x85:0x64-0x66`) |
 
 Code: `src/Devices.cs` (HID devices), `src/Buds.cs` (Bluetooth earbuds), `src/Generic.cs` (generic Bluetooth and XInput),
-`src/Vendors.cs` (Logitech, Razer, headsets, standard HID battery),
+`src/Vendors.cs` (Logitech, Razer, ASUS, PlayStation, headsets, standard HID battery), `src/Apple.cs` (AirPods),
+`src/GalaxyBuds.cs` (Samsung),
 `src/UI.cs` (icon, panel and settings), `src/Program.cs` (install).
 To add a device with dedicated support, define a `Slot` in `UI.cs` and read it in `Refresh`.
 
@@ -132,7 +139,8 @@ To add a device with dedicated support, define a `Slot` in `UI.cs` and read it i
 Protocol details come from these projects:
 [BudsLink](https://github.com/maniacx/BudsLink) and [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge) (Nothing / CMF),
 [Solaar](https://github.com/pwr-Solaar/Solaar) (Logitech HID++), [OpenRazer](https://github.com/openrazer/openrazer) (Razer),
-[HeadsetControl](https://github.com/Sapd/HeadsetControl) (SteelSeries, HyperX, Corsair), [G-Helper](https://github.com/seerge/g-helper) (ASUS mice).
+[HeadsetControl](https://github.com/Sapd/HeadsetControl) (SteelSeries, HyperX, Corsair), [G-Helper](https://github.com/seerge/g-helper) (ASUS mice), [AirPodsDesktop](https://github.com/SpriteOvO/AirPodsDesktop) (AirPods),
+[GalaxyBudsClient](https://github.com/timschneeb/GalaxyBudsClient) (Galaxy Buds), Linux `hid-playstation` (PlayStation controllers).
 
 ## License
 

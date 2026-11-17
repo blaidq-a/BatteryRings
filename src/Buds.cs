@@ -21,7 +21,14 @@ class CmfBuds : IDisposable
 {
     public event Action Changed;
     static readonly Guid Service = new Guid("aeac4a03-dff5-498f-843a-34487cf133eb");
-    const string NameMatch = "CMF Buds";
+    // All Nothing / CMF audio devices use the same RFCOMM protocol
+    public static bool IsNothing(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        string n = name.Trim().ToLowerInvariant();
+        return n.Contains("cmf buds") || n.Contains("cmf headphone") || n.StartsWith("nothing ear") || n.StartsWith("ear (")
+            || n.Contains("nothing headphone");
+    }
 
     public string DeviceName = "CMF Buds";
     readonly object lk = new object();
@@ -30,7 +37,7 @@ class CmfBuds : IDisposable
     byte seq;
     DateTime nextTry = DateTime.MinValue, lastAsk = DateTime.MinValue, lastBat = DateTime.MinValue;
     int left = -1, right = -1, cas = -1;
-    bool lc, rc, cc;
+    bool lc, rc, cc, single; // single: headphones with one battery
     readonly AutoResetEvent got = new AutoResetEvent(false);
 
     public Reading Read()
@@ -51,6 +58,7 @@ class CmfBuds : IDisposable
         lock (lk)
         {
             if ((DateTime.Now - lastBat).TotalSeconds > 90) return r; // Percent -1: bilinmiyor
+            if (single) { r.Percent = left; r.Charging = lc; return r; }
             r.Parts = new List<Part> {
                 new Part { Name = "Left", Percent = left, Charging = lc },
                 new Part { Name = "Right", Percent = right, Charging = rc },
@@ -141,7 +149,7 @@ class CmfBuds : IDisposable
     void Battery(byte[] p)
     {
         if (p.Length < 1) return;
-        int l = -1, r = -1, c = -1; bool lcx = false, rcx = false, ccx = false;
+        int l = -1, r = -1, c = -1; bool lcx = false, rcx = false, ccx = false, sgl = false;
         for (int i = 0; i < p[0] && 2 + i * 2 < p.Length; i++)
         {
             int id = p[1 + i * 2], v = p[2 + i * 2];
@@ -149,13 +157,13 @@ class CmfBuds : IDisposable
             if (id == 2) { l = lvl; lcx = ch; }
             else if (id == 3) { r = lvl; rcx = ch; }
             else if (id == 4) { c = lvl; ccx = ch; }
-            else if (id == 6) { l = r = lvl; lcx = rcx = ch; }
+            else if (id == 6) { l = r = lvl; lcx = rcx = ch; sgl = true; }
         }
         bool diff;
         lock (lk)
         {
             diff = l != left || r != right || c != cas || lcx != lc || rcx != rc || ccx != cc;
-            left = l; right = r; cas = c; lc = lcx; rc = rcx; cc = ccx;
+            left = l; right = r; cas = c; lc = lcx; rc = rcx; cc = ccx; single = sgl;
             lastBat = DateTime.Now;
         }
         got.Set();
@@ -195,7 +203,7 @@ class CmfBuds : IDisposable
         {
             do
             {
-                if (di.fConnected && di.szName != null && di.szName.IndexOf(NameMatch, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (di.fConnected && IsNothing(di.szName))
                 { a = di.Address; name = di.szName; return true; }
                 di.dwSize = Marshal.SizeOf(typeof(DEVINFO));
             } while (BluetoothFindNextDevice(h, ref di));

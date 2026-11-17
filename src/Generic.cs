@@ -18,14 +18,15 @@ static class GenericDevices
     static readonly DEVPROPKEY BatteryKey = new DEVPROPKEY { fmtid = new Guid("104EA319-6EE2-4701-BD47-8DDBF425BBE5"), pid = 2 };
     static readonly DEVPROPKEY NameKey = new DEVPROPKEY { fmtid = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), pid = 14 }; // FriendlyName
 
-    // Ozel destegi olan cihazlar burada tekrar listelenmez
-    static readonly string[] Skip = { "CMF Buds" };
 
     public static List<Found> Read()
     {
         var list = new List<Found>();
         try { list.AddRange(VendorDevices.Snapshot()); } catch { }
         var vendorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in list) vendorNames.Add(f.Name);
+        try { AppleBuds.Read(list, CmfBuds.ConnectedClassic()); } catch { } // AirPods / Beats: left, right, case
+        try { GalaxyBuds.Read(list); } catch { }                            // Samsung Galaxy Buds: left, right, case
         foreach (var f in list) vendorNames.Add(f.Name);
         var bt = new List<Found>();
         try { Bluetooth(bt); } catch { }
@@ -67,7 +68,7 @@ static class GenericDevices
                 }
                 if (addr == null || !seen.Add(addr)) continue;
                 bool skip = false;
-                foreach (var s in Skip) if (name.IndexOf(s, StringComparison.OrdinalIgnoreCase) >= 0) skip = true;
+                if (CmfBuds.IsNothing(name)) skip = true;
                 if (skip) continue;
 
                 list.Add(new Found

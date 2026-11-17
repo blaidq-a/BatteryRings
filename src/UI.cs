@@ -534,7 +534,7 @@ class BatteryUI : ApplicationContext
             {
                 Interlocked.Exchange(ref busy, 0);
                 head.Name = "Razer Barracuda X"; head.Kind = Kind.Headset;
-                buds.Name = dBuds.DeviceName; buds.Kind = Kind.Buds;
+                buds.Name = dBuds.DeviceName; buds.Kind = b.Present && b.Percent >= 0 && b.Parts == null ? Kind.Headset : Kind.Buds;
                 mouse.Name = dMouse.DeviceName; mouse.Kind = Kind.Mouse;
                 Apply(head, h); Apply(mouse, m); Apply(buds, b);
                 if (gen != null) generic = gen;
