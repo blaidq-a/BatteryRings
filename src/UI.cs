@@ -19,6 +19,8 @@ class Slot
 {
     public string Id, Name;
     public Kind Kind;
+    public string RealName;  // as the device reports it, before the user's own name/icon
+    public Kind RealKind;
     public int ColorIndex;   // which theme colour this device uses
     public Color Hue { get { return Themes.Current.Hue(ColorIndex); } }
     public Reading Last = new Reading();
@@ -315,7 +317,7 @@ class BatteryUI : ApplicationContext
     readonly AtkMouse dMouse = new AtkMouse();
     readonly CmfBuds dBuds = new CmfBuds();
     readonly Slot head = new Slot { Id = "razer-barracuda-x", Name = "Razer Barracuda X", Kind = Kind.Headset, ColorIndex = 0 };
-    readonly Slot mouse = new Slot { Id = "atk-mouse", Name = "ATK A9 Ultimate", Kind = Kind.Mouse, ColorIndex = 1 };
+    readonly Slot mouse = new Slot { Id = "atk-mouse", Name = "Wireless mouse", Kind = Kind.Mouse, ColorIndex = 1 };
     readonly Slot buds = new Slot { Id = "cmf-buds", Name = "CMF Buds Pro 2", Kind = Kind.Buds, ColorIndex = 2 };
     readonly List<Slot> slots;
     readonly HashSet<string> hidden = LoadHidden();
@@ -383,6 +385,25 @@ class BatteryUI : ApplicationContext
 
         SystemEvents.UserPreferenceChanged += OnPref;
         Refresh();
+
+        // updates: first check shortly after start, then every 6 hours
+        updates.Interval = 30000;
+        updates.Tick += delegate
+        {
+            updates.Interval = 6 * 3600 * 1000;
+            if (Settings.AutoUpdate && Program.IsInstalled) Updater.Check(false, PanelChanged);
+        };
+        if (LayeredWindow.DumpDir == null) updates.Start();
+        if (Program.JustUpdated)
+        {
+            var t1 = new System.Windows.Forms.Timer { Interval = 3000 };
+            t1.Tick += delegate
+            {
+                t1.Stop(); t1.Dispose();
+                if (icon.Visible) icon.ShowBalloonTip(5000, "BatteryRings updated", "Now running v" + Updater.Short(Updater.Current), ToolTipIcon.Info);
+            };
+            t1.Start();
+        }
         if (LayeredWindow.DumpDir != null)
         {
             var t = new System.Windows.Forms.Timer { Interval = 7000 };
@@ -394,6 +415,20 @@ class BatteryUI : ApplicationContext
                 try { File.Copy(Path.Combine(dd, "panel.png"), Path.Combine(dd, "panel_main.png"), true); } catch { }
                 ShowSettings();
                 try { File.Copy(Path.Combine(dd, "panel.png"), Path.Combine(dd, "panel_settings.png"), true); } catch { }
+                try
+                {
+                    using (var dlg = new DeviceEditor(head))
+                    {
+                        dlg.StartPosition = FormStartPosition.Manual; dlg.Location = new Point(-2000, -2000);
+                        dlg.Show(); dlg.Refresh();
+                        using (var bm = new Bitmap(dlg.Width, dlg.Height))
+                        {
+                            dlg.DrawToBitmap(bm, new Rectangle(0, 0, dlg.Width, dlg.Height));
+                            bm.Save(Path.Combine(dd, "editor.png"));
+                        }
+                    }
+                }
+                catch { }
                 using (var b = RingIcon(64)) b.Save(Path.Combine(LayeredWindow.DumpDir, "icon64.png"));
                 using (var b = RingIcon(16)) b.Save(Path.Combine(LayeredWindow.DumpDir, "icon16.png"));
                 icon.Visible = false; ExitThread();
@@ -401,6 +436,9 @@ class BatteryUI : ApplicationContext
             t.Start();
         }
     }
+
+    readonly System.Windows.Forms.Timer updates = new System.Windows.Forms.Timer();
+    void PanelChanged() { try { invoker.BeginInvoke((Action)delegate { if (panel != null && panel.Visible) DrawPanel(); }); } catch { } }
 
     void Kick() { try { invoker.BeginInvoke((Action)Refresh); } catch { } }
     void OnPref(object s, UserPreferenceChangedEventArgs e) { try { invoker.BeginInvoke((Action)delegate { Look.Refresh(); DrawIcon(); }); } catch { } }
@@ -420,10 +458,13 @@ class BatteryUI : ApplicationContext
             invoker.BeginInvoke((Action)delegate
             {
                 Interlocked.Exchange(ref busy, 0);
-                buds.Name = dBuds.DeviceName;
+                head.Name = "Razer Barracuda X"; head.Kind = Kind.Headset;
+                buds.Name = dBuds.DeviceName; buds.Kind = Kind.Buds;
+                mouse.Name = dMouse.DeviceName; mouse.Kind = Kind.Mouse;
                 Apply(head, h); Apply(mouse, m); Apply(buds, b);
                 if (gen != null) generic = gen;
                 ApplyGeneric();
+                ApplyOverrides();
                 DrawIcon();
                 if (panel != null && panel.Visible) DrawPanel();
             });
@@ -461,7 +502,7 @@ class BatteryUI : ApplicationContext
                 s = new Slot { Id = f.Id, Kind = f.Kind, ColorIndex = 3 + paletteNext++ };
                 slots.Add(s);
             }
-            s.Name = f.Name;
+            s.Name = f.Name; s.Kind = f.Kind;
             Apply(s, f.Reading);
         }
         foreach (var s in slots.ToArray())
@@ -470,6 +511,34 @@ class BatteryUI : ApplicationContext
                 Apply(s, new Reading { Present = false });
                 if (!s.Active) slots.Remove(s);
             }
+    }
+
+    // User's own name / icon for a device (Settings > pencil)
+    void ApplyOverrides()
+    {
+        foreach (var s in slots)
+        {
+            s.RealName = s.Name; s.RealKind = s.Kind;
+            string n; Kind k;
+            if (DeviceOverrides.Get(s.Id, out n, out k)) { if (!string.IsNullOrEmpty(n)) s.Name = n; s.Kind = k; }
+        }
+    }
+
+    void EditDevice(Slot s)
+    {
+        HidePanel();
+        using (var dlg = new DeviceEditor(s))
+        {
+            if (dlg.ShowDialog() == DialogResult.OK)
+            {
+                if (dlg.Reset) DeviceOverrides.Clear(s.Id);
+                else DeviceOverrides.Set(s.Id, dlg.NameText == s.RealName ? "" : dlg.NameText, dlg.Chosen);
+                s.Name = s.RealName; s.Kind = s.RealKind;
+                ApplyOverrides();
+                DrawIcon();
+            }
+        }
+        ShowSettings();
     }
 
     // Gorunen (gizlenmemis) aktif cihazlar
@@ -677,7 +746,7 @@ class BatteryUI : ApplicationContext
         if (!settingsView && devs.Count == 0) { HidePanel(); return; }
 
         float hh = HeadH;
-        if (settingsView) hh += SetRowH * 3 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 50;
+        if (settingsView) hh += SetRowH * 4 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 50 + 34;
         else foreach (var s in devs) hh += Multi(s) ? MultiRowH : RowH;
         hh += 8;
         int W = (int)(PW * k), H = (int)(hh * k);
@@ -799,6 +868,7 @@ class BatteryUI : ApplicationContext
             Toggle(g, f, L, R, ref y, null, "Start with Windows", IsAutoStart(), delegate { SetAutoStart(!IsAutoStart()); });
             Toggle(g, f, L, R, ref y, null, "Open when hovering the icon", Settings.HoverOpen, delegate { Settings.HoverOpen = !Settings.HoverOpen; });
             Toggle(g, f, L, R, ref y, null, "Low battery alerts", Settings.Alerts, delegate { Settings.Alerts = !Settings.Alerts; });
+            Toggle(g, f, L, R, ref y, null, "Install updates automatically", Settings.AutoUpdate, delegate { Settings.AutoUpdate = !Settings.AutoUpdate; });
 
             y += 10 * k;
             using (var br = new SolidBrush(sub)) g.DrawString("THEME", fSmall, br, L, y, sf);
@@ -824,8 +894,25 @@ class BatteryUI : ApplicationContext
                 });
             }
 
+            // updates
+            y += 8 * k;
+            float ux = Link(g, f, L - 8 * k + MeasureW(g, f, "Check for updates") + 16 * k, y, "Check for updates", Look.Accent, delegate { Updater.Check(true, PanelChanged); });
+            if (Updater.Status.Length > 0)
+                using (var br = new SolidBrush(sub))
+                {
+                    string st = Updater.Status;
+                    float maxW = R - (L + MeasureW(g, f, "Check for updates") + 20 * k);
+                    using (var fs = new Font("Segoe UI", 12.5f * k, GraphicsUnit.Pixel))
+                    {
+                        while (st.Length > 4 && MeasureW(g, fs, st) > maxW) st = st.Substring(0, st.Length - 2);
+                        if (st != Updater.Status) st = st.TrimEnd() + "…";
+                        g.DrawString(st, fs, br, R - MeasureW(g, fs, st), y + 5 * k, sf);
+                    }
+                }
+            y += 34 * k;
+
             // footer
-            y += 12 * k;
+            y += 4 * k;
             using (var pen = new Pen(Look.A(fg, Look.Light ? 22 : 24), 1f)) g.DrawLine(pen, L, y, R, y);
             y += 12 * k;
             using (var br = new SolidBrush(sub))
@@ -877,11 +964,28 @@ class BatteryUI : ApplicationContext
     {
         float k = Look.K;
         var row = new RectangleF(L - 8 * k, y, R - L + 16 * k, SetRowH * k);
+        int penHit = -1;
+        RectangleF pr = RectangleF.Empty;
+        if (dev != null)
+        {
+            // pencil: rename / change icon (added first so it wins over the row's click area)
+            pr = new RectangleF(R - 40 * k - 36 * k, y + 7 * k, 26 * k, 26 * k);
+            penHit = hits.Count;
+            var dv = dev;
+            hits.Add(new Hit { R = pr, A = delegate { EditDevice(dv); } });
+        }
         int idx = hits.Count;
         hits.Add(new Hit { R = row, A = a });
-        if (hot == idx)
+        if (hot == idx || (penHit >= 0 && hot == penHit))
             using (var p = Look.Round(row, 5 * k))
             using (var br = new SolidBrush(Look.A(Look.Fg, Look.Light ? 12 : 14))) g.FillPath(br, p);
+        if (penHit >= 0)
+        {
+            if (hot == penHit)
+                using (var p = Look.Round(pr, 5 * k))
+                using (var br = new SolidBrush(Look.A(Look.Fg, Look.Light ? 20 : 26))) g.FillPath(br, p);
+            Look.Icon(g, "\uE70F", pr, 12 * k, Look.A(Look.Fg, hot == penHit || hot == idx ? 230 : 120));
+        }
 
         float tx = L;
         if (dev != null)
@@ -890,7 +994,7 @@ class BatteryUI : ApplicationContext
             tx += 28 * k;
         }
         string t = label;
-        float maxW = R - tx - 52 * k;
+        float maxW = R - tx - (dev != null ? 86 : 52) * k;
         while (t.Length > 4 && g.MeasureString(t, f, PointF.Empty, StringFormat.GenericTypographic).Width > maxW) t = t.Substring(0, t.Length - 2);
         if (t != label) t = t.TrimEnd() + "…";
         using (var br = new SolidBrush(Look.Fg)) g.DrawString(t, f, br, tx, y + 11 * k, StringFormat.GenericTypographic);
@@ -908,6 +1012,8 @@ class BatteryUI : ApplicationContext
             g.FillEllipse(br, kx, sw.Y + (sw.Height - d) / 2, d, d);
         y += SetRowH * k;
     }
+
+    static float MeasureW(Graphics g, Font f, string t) { return g.MeasureString(t, f, PointF.Empty, StringFormat.GenericTypographic).Width; }
 
     // Text button aligned to the right edge; returns the left edge for the next one
     float Link(Graphics g, Font f, float right, float y, string text, Color c, Action a)
@@ -993,6 +1099,7 @@ static class Settings
     }
     public static bool HoverOpen { get { return Get("HoverOpen", true); } set { Set("HoverOpen", value); } }
     public static bool Alerts { get { return Get("Alerts", true); } set { Set("Alerts", value); } }
+    public static bool AutoUpdate { get { return Get("AutoUpdate", true); } set { Set("AutoUpdate", value); } }
     static string theme; // cached: read many times per frame
     public static string Theme
     {
@@ -1004,5 +1111,157 @@ static class Settings
             return theme;
         }
         set { theme = value; try { using (var k = Registry.CurrentUser.CreateSubKey(Key)) k.SetValue("Theme", value); } catch { } }
+    }
+}
+
+// Saved per-device name / icon chosen by the user: HKCU\Software\BatteryRings\Devices\<id>
+static class DeviceOverrides
+{
+    const string Root = @"Software\BatteryRings\Devices";
+    static string Key(string id) { return Root + "\\" + id.Replace("\\", "_"); }
+
+    public static bool Get(string id, out string name, out Kind kind)
+    {
+        name = null; kind = Kind.Other;
+        try
+        {
+            using (var k = Registry.CurrentUser.OpenSubKey(Key(id)))
+            {
+                if (k == null) return false;
+                name = k.GetValue("Name") as string;
+                object v = k.GetValue("Kind");
+                if (!(v is int) || !Enum.IsDefined(typeof(Kind), (int)v)) return false;
+                kind = (Kind)(int)v;
+                return true;
+            }
+        }
+        catch { return false; }
+    }
+
+    public static void Set(string id, string name, Kind kind)
+    {
+        try
+        {
+            using (var k = Registry.CurrentUser.CreateSubKey(Key(id)))
+            {
+                k.SetValue("Name", name ?? "");
+                k.SetValue("Kind", (int)kind, RegistryValueKind.DWord);
+            }
+        }
+        catch { }
+    }
+
+    public static void Clear(string id) { try { Registry.CurrentUser.DeleteSubKeyTree(Key(id), false); } catch { } }
+}
+
+// Small dialog: rename a device and pick its icon
+class DeviceEditor : Form
+{
+    public string NameText { get { return box.Text.Trim(); } }
+    public Kind Chosen;
+    public bool Reset;
+    readonly TextBox box = new TextBox();
+    static readonly Kind[] Kinds = { Kind.Headset, Kind.Buds, Kind.Mouse, Kind.Keyboard, Kind.Gamepad, Kind.Other };
+    static readonly string[] KindNames = { "Headset", "Earbuds", "Mouse", "Keyboard", "Controller", "Other" };
+    readonly Slot slot;
+    Color bg, fg;
+    int hover = -1;
+
+    public DeviceEditor(Slot s)
+    {
+        slot = s;
+        Chosen = s.Kind;
+        Look.Panel = true;
+        try { bg = Look.PanelBg; fg = Look.Fg; } finally { Look.Panel = false; }
+        float k = Look.K;
+        Text = "Edit device";
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = MinimizeBox = false;
+        ShowInTaskbar = false;
+        TopMost = true;
+        StartPosition = FormStartPosition.CenterScreen;
+        BackColor = bg; ForeColor = fg;
+        Font = new Font("Segoe UI", 10f);
+        ClientSize = new Size((int)(360 * k), (int)(232 * k));
+        DoubleBuffered = true;
+
+        var lbl = new Label { Text = "Name", AutoSize = true, Location = new Point((int)(16 * k), (int)(14 * k)), ForeColor = Look.A(fg, 190) };
+        box.Text = s.Name;
+        box.Location = new Point((int)(16 * k), (int)(36 * k));
+        box.Width = (int)(328 * k);
+        box.MaxLength = 40;
+        box.BackColor = Blend(bg, fg, 0.08f); box.ForeColor = fg; box.BorderStyle = BorderStyle.FixedSingle;
+        var lbl2 = new Label { Text = "Icon", AutoSize = true, Location = new Point((int)(16 * k), (int)(74 * k)), ForeColor = Look.A(fg, 190) };
+
+        var save = Btn("Save", (int)(256 * k), true);
+        save.Click += delegate { DialogResult = DialogResult.OK; };
+        var cancel = Btn("Cancel", (int)(164 * k), false);
+        cancel.Click += delegate { DialogResult = DialogResult.Cancel; };
+        var reset = Btn("Reset", (int)(16 * k), false);
+        reset.Click += delegate { Reset = true; DialogResult = DialogResult.OK; };
+        AcceptButton = save; CancelButton = cancel;
+        Controls.AddRange(new Control[] { lbl, box, lbl2, save, cancel, reset });
+
+        MouseMove += (o, e) => { int h = HitIcon(e.Location); if (h != hover) { hover = h; Invalidate(); } Cursor = h >= 0 ? Cursors.Hand : Cursors.Default; };
+        MouseClick += (o, e) => { int h = HitIcon(e.Location); if (h >= 0) { Chosen = Kinds[h]; Invalidate(); } };
+    }
+
+    // dark title bar when the panel theme is dark (Windows 10 2004+ / 11)
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        int dark = (bg.R + bg.G + bg.B) / 3 < 128 ? 1 : 0;
+        try { DwmSetWindowAttribute(Handle, 20, ref dark, 4); } catch { }
+    }
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
+
+    Button Btn(string t, int x, bool primary)
+    {
+        float k = Look.K;
+        var b = new Button
+        {
+            Text = t, FlatStyle = FlatStyle.Flat, Location = new Point(x, (int)(186 * k)), Size = new Size((int)(88 * k), (int)(32 * k)),
+            BackColor = primary ? Look.Accent : Blend(bg, fg, 0.10f), ForeColor = primary ? Color.White : fg, UseVisualStyleBackColor = false
+        };
+        b.FlatAppearance.BorderSize = 0;
+        return b;
+    }
+
+    static Color Blend(Color a, Color b, float t)
+    {
+        return Color.FromArgb(255, (int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
+    }
+
+    RectangleF IconRect(int i)
+    {
+        float k = Look.K, w = 52 * k, gap = (328 * k - 6 * w) / 5;
+        return new RectangleF(16 * k + i * (w + gap), 96 * k, w, 72 * k);
+    }
+
+    int HitIcon(Point p) { for (int i = 0; i < Kinds.Length; i++) if (IconRect(i).Contains(p)) return i; return -1; }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+        float k = Look.K;
+        using (var f = new Font("Segoe UI", 11f * k, GraphicsUnit.Pixel))
+        using (var sf = new StringFormat { Alignment = StringAlignment.Center })
+            for (int i = 0; i < Kinds.Length; i++)
+            {
+                var r = IconRect(i);
+                bool sel = Kinds[i] == Chosen;
+                if (sel || hover == i)
+                    using (var p = Look.Round(r, 6 * k))
+                    using (var br = new SolidBrush(sel ? Look.A(Look.Accent, 60) : Look.A(fg, 18))) g.FillPath(br, p);
+                if (sel)
+                    using (var p = Look.Round(r, 6 * k))
+                    using (var pen = new Pen(Look.Accent, 1.5f * k)) g.DrawPath(pen, p);
+                Look.Glyph(g, Kinds[i], new RectangleF(r.X + r.Width / 2 - 11 * k, r.Y + 12 * k, 22 * k, 22 * k), fg);
+                using (var br = new SolidBrush(Look.A(fg, 200)))
+                    g.DrawString(KindNames[i], f, br, new RectangleF(r.X - 4 * k, r.Y + 44 * k, r.Width + 8 * k, 20 * k), sf);
+            }
     }
 }

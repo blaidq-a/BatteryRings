@@ -423,6 +423,41 @@ class AtkMouse : Device
     // dogrudan USB (or. 373B:11B6 "ATK A9 Ultimate"). Hangisi cevap veriyorsa onu kullan.
     string linkPath;
 
+    // Many brands build on the same Compx chip (VID 373B), so take the name from the device itself.
+    // The calibrated voltage curve is only used for the ATK A9 Ultimate; others show the firmware percentage.
+    public string DeviceName = "Wireless mouse";
+    public bool IsAtk;
+    readonly Dictionary<string, string> names = new Dictionary<string, string>();
+
+    // Over the cable the mouse reports its real name (e.g. "ATK A9 Ultimate"); the 2.4 GHz dongle only says
+    // "Wireless mouse ... dongle" / "Compx". Remember the cable name and reuse it on the dongle.
+    void UpdateName(string path)
+    {
+        string n;
+        if (!names.TryGetValue(path, out n))
+        {
+            n = VendorDevices.Product(path) ?? "";
+            names[path] = n;
+        }
+        bool generic = n.Length == 0 || n.IndexOf("dongle", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("receiver", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) >= 0;
+        if (!generic)
+        {
+            if (DeviceName != n)
+                try { using (var k = Registry.CurrentUser.CreateSubKey(StateKey)) k.SetValue("MouseName", n); } catch { }
+            DeviceName = n;
+        }
+        else
+        {
+            string saved = null;
+            try { using (var k = Registry.CurrentUser.OpenSubKey(StateKey)) if (k != null) saved = k.GetValue("MouseName") as string; } catch { }
+            DeviceName = string.IsNullOrEmpty(saved) ? "Wireless mouse" : saved;
+        }
+        // The voltage curve and charge model were measured on an ATK A9 Ultimate (4.35 V LiHV cell).
+        // Other models may use a different battery, so they keep the firmware's own percentage.
+        IsAtk = DeviceName.IndexOf("A9 Ultimate", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     static List<string> Candidates()
     {
         var list = new List<string>();
@@ -435,7 +470,7 @@ class AtkMouse : Device
         return list;
     }
 
-    protected override HidLink Connect() { return null; } // Read icinde yonetiliyor
+    protected override HidLink Connect() { return null; } // handled inside Read
 
     public override Reading Read()
     {
@@ -449,6 +484,7 @@ class AtkMouse : Device
             // 1) mevcut baglanti hala listede ve cevap veriyorsa onu kullan
             if (link != null && !link.Dead && paths.Contains(linkPath))
             {
+                UpdateName(linkPath);
                 Query(r);
                 if (r.Percent >= 0) return r;
             }
@@ -459,6 +495,7 @@ class AtkMouse : Device
                 var l = HidLink.Open(p, 17);
                 if (l == null) continue;
                 var old = link; link = l;
+                UpdateName(p);
                 Query(r);
                 if (r.Percent >= 0) { if (old != null) old.Dispose(); linkPath = p; return r; }
                 link = old; l.Dispose();
@@ -537,8 +574,8 @@ class AtkMouse : Device
             if (b[6] == 0 && mv == 0) continue;
             r.Charging = b[7] == 1;
             r.MilliVolt = mv;
-            ReadConfig();
-            r.Percent = Smooth(Math.Min(100, (int)b[6]), mv, r.Charging);
+            if (LogEnabled) ReadConfig(); // ATK-only EEPROM read, needed only for calibration logs
+            r.Percent = IsAtk ? Smooth(Math.Min(100, (int)b[6]), mv, r.Charging) : Math.Min(100, (int)b[6]);
             return;
         }
     }

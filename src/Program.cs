@@ -15,8 +15,8 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("BatteryRings")]
 [assembly: AssemblyCompany("BatteryRings")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
 // Guvenlik: P/Invoke DLL'leri yalnizca System32'den yuklenir (exe'nin yanina konan sahte DLL calismaz)
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -43,6 +43,13 @@ static class Program
         Native.SetProcessDPIAware();
         string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "";
         if (mode == "/test") { SelfTest(); return; }
+        if (mode == "/checkupdate")
+        {
+            Updater.Check(true, null);
+            for (int i = 0; i < 300 && (Updater.Status == "Checking…" || Updater.Status.StartsWith("Downloading")); i++) Thread.Sleep(100);
+            File.WriteAllText("test_result.txt", "update: " + Updater.Status);
+            return;
+        }
         if (mode == "/render")
         {
             LayeredWindow.DumpDir = args.Length > 1 ? args[1] : ".";
@@ -50,7 +57,9 @@ static class Program
             return;
         }
         Application.EnableVisualStyles();
-        if (mode == "/install") { Install(true); return; }
+        if (mode == "/install") { Install(true, false); return; }
+        if (mode == "/update") { Install(true, true); return; }   // started by the updater
+        if (mode == "/updated") JustUpdated = true;
         if (mode == "/uninstall") { Uninstall(true); return; }
 
         if (!IsInstalled && mode != "/portable")
@@ -61,7 +70,7 @@ static class Program
                 "Choose No to just run it this time without installing.",
                 AppName, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
             if (ans == DialogResult.Cancel) return;
-            if (ans == DialogResult.Yes) { Install(false); return; }
+            if (ans == DialogResult.Yes) { Install(false, false); return; }
         }
 
         CleanupLegacy();
@@ -76,12 +85,12 @@ static class Program
     static void SelfTest()
     {
         var h = new Barracuda().Read();
-        var m = new AtkMouse().Read();
+        var am = new AtkMouse(); var m = am.Read();
         var bd = new CmfBuds(); var b = bd.Read(); bd.Dispose();
         string bp = ""; if (b.Parts != null) foreach (var p in b.Parts) bp += " " + p.Name + "=" + p.Percent + (p.Charging ? "+" : "");
         File.WriteAllText("test_result.txt",
             "kulaklik present=" + h.Present + " pil=" + h.Percent + " sarj=" + h.Charging + Environment.NewLine +
-            "mouse present=" + m.Present + " pil=" + m.Percent + " sarj=" + m.Charging + " mv=" + m.MilliVolt + Environment.NewLine +
+            "mouse present=" + m.Present + " pil=" + m.Percent + " sarj=" + m.Charging + " mv=" + m.MilliVolt + " ad=" + am.DeviceName + " atk=" + am.IsAtk + Environment.NewLine +
             "buds present=" + b.Present + " pil=" + b.Percent + bp + Environment.NewLine +
             GenericLines());
     }
@@ -94,6 +103,7 @@ static class Program
         try { Logitech.Scan(v); } catch (Exception e) { t += "logitech hata: " + e.Message + Environment.NewLine; }
         try { RazerMice.Scan(v); } catch (Exception e) { t += "razer hata: " + e.Message + Environment.NewLine; }
         try { Headsets.Scan(v); } catch (Exception e) { t += "headset hata: " + e.Message + Environment.NewLine; }
+        try { AsusMice.Scan(v); } catch (Exception e) { t += "asus hata: " + e.Message + Environment.NewLine; }
         try { HidBattery.Scan(v); } catch (Exception e) { t += "hidbat hata: " + e.Message + Environment.NewLine; }
         t += "vendor tarama " + sw.ElapsedMilliseconds + " ms, " + v.Count + " cihaz" + Environment.NewLine;
         foreach (var f in v) t += "vendor " + f.Kind + " pil=" + f.Reading.Percent + Environment.NewLine;
@@ -121,7 +131,9 @@ static class Program
             }
     }
 
-    static void Install(bool quiet)
+    public static bool JustUpdated;
+
+    static void Install(bool quiet, bool update)
     {
         try
         {
@@ -132,7 +144,7 @@ static class Program
             CleanupLegacy();
             MakeShortcut();
             RegisterUninstall();
-            Process.Start(InstalledExe);
+            Process.Start(InstalledExe, update ? "/updated" : "");
             if (!quiet)
                 MessageBox.Show("Installed. The icon is in the taskbar, next to the clock.\n\nTo uninstall, use Windows Settings > Apps > Installed apps.",
                     AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);

@@ -2,6 +2,7 @@
 //   - Logitech HID++ 2.0 (Unifying / Bolt / Lightspeed receivers and direct USB/Bluetooth): mice, keyboards, G headsets
 //   - Razer mice (90-byte feature reports, as documented by OpenRazer)
 //   - Headsets from SteelSeries, HyperX and Corsair (commands as documented by HeadsetControl)
+//   - ASUS ROG / TUF wireless mice (command 0x12 0x07, as used by G-Helper)
 // None of these were tested on real hardware here; they follow the published protocol notes.
 // A slow scan runs on its own thread so device timeouts never hold up the UI.
 using System;
@@ -36,6 +37,7 @@ static class VendorDevices
             try { Logitech.Scan(list); } catch { }
             try { RazerMice.Scan(list); } catch { }
             try { Headsets.Scan(list); } catch { }
+            try { AsusMice.Scan(list); } catch { }
             try { HidBattery.Scan(list); } catch { }
             lock (lk) cache = list;
             Thread.Sleep(20000);
@@ -477,4 +479,66 @@ static class HidBattery
     [DllImport("hid.dll")] static extern int HidP_GetValueCaps(int type, byte[] caps, ref ushort len, IntPtr pd);
     [DllImport("hid.dll")] static extern int HidP_GetUsageValue(int type, ushort page, ushort link, ushort usage, out uint value, IntPtr pd, byte[] report, uint len);
     [DllImport("hid.dll")] static extern bool HidD_GetInputReport(SafeFileHandle h, byte[] buf, int len);
+}
+
+// ---------------- ASUS ROG / TUF wireless mice ----------------
+static class AsusMice
+{
+    // pid, interface filter, report id, how the level is encoded (0: byte 5, 1: byte 5 x25, 2: byte 7 x25)
+    struct Model { public int Pid; public string Filter; public byte Rid; public int Mode; }
+    static Model M(int pid, string f, byte rid, int mode) { return new Model { Pid = pid, Filter = f, Rid = rid, Mode = mode }; }
+
+    static readonly Model[] Models = {
+        M(0x18A0, "mi_02", 0, 1), // Gladius II Wireless
+        M(0x18B4, "mi_01", 0, 2), // Strix Carry
+        M(0x18E5, "mi_00", 0, 1), // Chakram
+        M(0x1908, "mi_00", 0, 1), // Pugio II
+        M(0x1949, "mi_00", 0, 1), // Strix Impact II Wireless
+        M(0x1960, "mi_00", 0, 1), // Keris Wireless
+        M(0x1979, "mi_00", 0, 0), // Spatha X
+        M(0x197F, "mi_00", 0, 0), // Gladius III Wireless
+        M(0x19F4, "mi_00", 0, 0), // TUF M4 Wireless
+        M(0x1A1A, "mi_00", 0, 0), // Chakram X
+        M(0x1A24, "mi_02", 0, 0), // MD200
+        M(0x1A68, "mi_00", 0, 0), // Keris Wireless Aimpoint
+        M(0x1A72, "mi_00", 0, 0), // Gladius III Aimpoint
+        M(0x1A94, "mi_00", 0, 0), // Harpe Ace Aim Lab
+        M(0x1ACE, "mi_02&col03", 3, 0), // Strix Impact III Wireless
+        M(0x1B16, "mi_00", 0, 0), // Keris II Ace
+        M(0x1C0C, "mi_00", 0, 0), // Keris II Origin
+        M(0x1CD3, "mi_03", 0, 0), // MD301
+    };
+
+    public static void Scan(List<Found> list)
+    {
+        var done = new HashSet<int>();
+        foreach (var c in VendorDevices.Collections(0x0B05))
+        {
+            int pid = VendorDevices.Pid(c.Key);
+            if (done.Contains(pid)) continue;
+            int mi = Array.FindIndex(Models, x => x.Pid == pid);
+            if (mi < 0) continue;
+            var m = Models[mi];
+            if (c.Key.ToLowerInvariant().IndexOf(m.Filter) < 0 || c.Value.OutputReportByteLength < 3) continue;
+            var l = HidLink.Open(c.Key, c.Value.OutputReportByteLength);
+            if (l == null) continue;
+            try
+            {
+                l.Drain();
+                l.Send(m.Rid, 0x12, 0x07);
+                var r = l.Wait(b => b[0] == m.Rid && b[1] == 0x12 && b[2] == 0x07, 600);
+                if (r == null) continue;
+                int lvl = m.Mode == 0 ? r[5] : m.Mode == 1 ? r[5] * 25 : r[7] * 25;
+                if (lvl <= 0 || lvl > 100) continue; // asleep / not connected
+                done.Add(pid);
+                list.Add(new Found
+                {
+                    Id = "asus:" + pid.ToString("x4"), Name = VendorDevices.Product(c.Key) ?? "ASUS mouse", Kind = Kind.Mouse,
+                    Reading = new Reading { Present = true, Percent = lvl, Charging = r[10] > 0 }
+                });
+            }
+            catch { }
+            finally { l.Dispose(); }
+        }
+    }
 }

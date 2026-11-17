@@ -17,12 +17,13 @@ Hover over (or click) the icon to see every device in detail.
 |---|---|---|
 | Razer | Barracuda X (2022) headset on its 2.4 GHz dongle, with charging state | ✅ |
 | Razer | Wireless mice and keyboards (dongle or cable) | – |
-| ATK | A9 Ultimate and ATK mice with the same Compx firmware (dongle or cable); a steady percentage computed from the battery voltage | ✅ |
+| ATK / Compx | ATK A9 Ultimate: a steady percentage computed from the battery voltage (curve measured on this model). Other ATK models and other mice on Compx 2.4 GHz dongles (VID 373B) show the percentage the mouse reports. The dongle does not tell the mouse's name, so it is learned the first time the mouse is plugged in by cable | ✅ |
 | Nothing / CMF | CMF Buds Pro 2 (other CMF Buds models use the same protocol): left, right and case separately | ✅ |
 | Logitech | Mice, keyboards and G headsets on Unifying, Bolt or Lightspeed receivers, by cable or Bluetooth (HID++ 2.0) | – |
 | SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless | – |
 | HyperX | Cloud Alpha Wireless, Cloud Flight | – |
 | Corsair | Void family wireless headsets | – |
+| ASUS | ROG / TUF wireless mice: Keris, Gladius II / III, Chakram, Harpe Ace, Pugio II, Spatha X, Strix Carry / Impact, TUF M4, MD200 / MD301 | – |
 
 Untested rows follow public protocol notes (see *Thanks*). If you own one, please open an issue saying whether it works.
 
@@ -39,6 +40,7 @@ Click the gear in the panel:
 - Open the panel when hovering the icon (otherwise click it)
 - Theme: Default (follows Windows), Sakura, Aqua, Midnight, Forest, Sunset
 - Low battery alerts
+- Install updates automatically, and a **Check for updates** button
 - Show or hide each device
 - Quit
 
@@ -50,6 +52,15 @@ Click the gear in the panel:
 It installs itself to `%LOCALAPPDATA%\Programs\BatteryRings`, starts with Windows and adds a Start menu shortcut.
 No administrator rights are needed. Running a newer version installs it over the old one.
 To uninstall, use Windows Settings > Apps > Installed apps > BatteryRings.
+
+### Updates
+
+An installed copy checks this repository's latest release shortly after start and then every 6 hours.
+If there is a newer version it downloads `BatteryRings.exe`, checks it against the published `BatteryRings.exe.sha256`
+and its version information, and installs it over the old one. Turn this off in Settings, or use **Check for updates**.
+
+Publishing a release: attach both `dist\BatteryRings.exe` and `BatteryRings.exe.sha256`
+(`certutil -hashfile dist\BatteryRings.exe SHA256`, first line of the hash only, lowercase).
 
 > The exe is not code-signed, so Windows SmartScreen or an antivirus may warn about it.
 > The full source is here and you can build it yourself.
@@ -91,7 +102,8 @@ To add a device with dedicated support, define a `Slot` in `UI.cs` and read it i
 
 ## Privacy and security
 
-- **It never connects to the internet**, collects nothing and sends nothing. There is no network code; it only talks to local USB/HID and Bluetooth devices.
+- **The only network traffic is the update check**: a request to `api.github.com` for this repository's latest release and, when there is a new version, the download from `github.com`. Nothing about you or your devices is sent, and automatic updates can be turned off in Settings. Everything else is local USB/HID and Bluetooth.
+- Updates are installed only when the SHA-256 checksum and the version information match; downloads are accepted only from this repository's release URLs.
 - No administrator rights. It only writes to the user's own folders and registry (`HKCU`):
   `%LOCALAPPDATA%\Programs\BatteryRings`, `HKCU\Software\BatteryRings` (settings, hidden devices, last mouse value) and the startup and Installed apps entries. Uninstalling removes all of them.
 - It sends devices **read-only** queries and never changes their settings (the mouse's EEPROM write command is never used).
@@ -103,7 +115,7 @@ To add a device with dedicated support, define a `Slot` in `UI.cs` and read it i
 Protocol details come from these projects:
 [BudsLink](https://github.com/maniacx/BudsLink) and [Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge) (Nothing / CMF),
 [Solaar](https://github.com/pwr-Solaar/Solaar) (Logitech HID++), [OpenRazer](https://github.com/openrazer/openrazer) (Razer),
-[HeadsetControl](https://github.com/Sapd/HeadsetControl) (SteelSeries, HyperX, Corsair).
+[HeadsetControl](https://github.com/Sapd/HeadsetControl) (SteelSeries, HyperX, Corsair), [G-Helper](https://github.com/seerge/g-helper) (ASUS mice).
 
 ## License
 
