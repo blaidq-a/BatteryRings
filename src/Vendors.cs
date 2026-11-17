@@ -399,7 +399,7 @@ static class HidBattery
             if (vi < 0) continue;
             string vid = lp.Substring(vi + 4, 4);
             int pid = VendorDevices.Pid(p);
-            if (vid == "373b" || (vid == "1532" && pid == 0x0552)) continue; // have dedicated readers
+            if (vid == "373b" || vid == "3554" || (vid == "1532" && pid == 0x0552)) continue; // have dedicated readers
             string key = vid + ":" + pid.ToString("x4");
             if (seen.Contains(key)) continue;
             Reading r; Kind kind;
@@ -577,8 +577,8 @@ static class Diagnostics
             if (seen.Add(line)) sb.AppendLine("  " + line);
         }
         sb.AppendLine();
-        sb.AppendLine("Compx (373b) battery query:");
-        foreach (var p in Native.HidPaths("vid_373b&"))
+        sb.AppendLine("Compx (373b / 3554) battery query:");
+        foreach (var p in AtkMouse.CompxPaths())
         {
             Native.HIDP_CAPS c;
             if (!Native.GetCaps(p, out c) || c.UsagePage != 0xFF02 || c.OutputReportByteLength < 17) continue;
@@ -589,7 +589,8 @@ static class Diagnostics
                 l.Drain();
                 l.Send(8, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x49);
                 var r = l.Wait(b => b[0] == 8 && b[1] == 4, 800);
-                sb.AppendLine("  pid " + VendorDevices.Pid(p).ToString("x4") + " (" + c.OutputReportByteLength + " bytes): " +
+                string vv = p.ToLowerInvariant().Contains("vid_3554") ? "3554:" : "373b:";
+                sb.AppendLine("  " + vv + VendorDevices.Pid(p).ToString("x4") + " (" + c.OutputReportByteLength + " bytes): " +
                     (r == null ? "no answer" : BitConverter.ToString(r, 0, Math.Min(20, r.Length))));
             }
             catch (Exception e) { sb.AppendLine("  error: " + e.Message); }

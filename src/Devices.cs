@@ -458,13 +458,23 @@ class AtkMouse : Device
         IsAtk = DeviceName.IndexOf("A9 Ultimate", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
+    // Compx-based mice show up under more than one vendor id: the 2.4 GHz dongle as 373B (Compx),
+    // and some models on their cable under their brand's id, e.g. VXE R1 SE+ = 3554:F58F.
+    public static readonly string[] CompxVids = { "vid_373b&", "vid_3554&" };
+    public static List<string> CompxPaths()
+    {
+        var l = new List<string>();
+        foreach (var v in CompxVids) l.AddRange(Native.HidPaths(v));
+        return l;
+    }
+
     // Compx command interface: vendor page 0xFF02. Most use 17-byte reports; some firmwares (e.g. on cable)
     // use longer ones, so accept those too and pad the 17-byte command.
     readonly Dictionary<string, int> outLens = new Dictionary<string, int>();
     List<string> Candidates()
     {
         var list = new List<string>();
-        foreach (var p in Native.HidPaths("vid_373b&"))
+        foreach (var p in CompxPaths())
         {
             Native.HIDP_CAPS c;
             if (!Native.GetCaps(p, out c)) continue;
@@ -482,7 +492,7 @@ class AtkMouse : Device
     // true if a Compx device that is not a dongle (= the mouse on its cable) is plugged in
     bool CablePresent(List<string> paths)
     {
-        foreach (var p in Native.HidPaths("vid_373b&"))
+        foreach (var p in CompxPaths())
         {
             string n;
             if (!names.TryGetValue(p, out n)) { n = VendorDevices.Product(p) ?? ""; names[p] = n; }
