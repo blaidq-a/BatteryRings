@@ -31,7 +31,7 @@ Hover over (or click) the icon to see every device in detail.
 | Sony | DualSense, DualSense Edge and DualShock 4 controllers, by cable or Bluetooth | – |
 | Logitech | Mice, keyboards and G headsets on Unifying, Bolt or Lightspeed receivers, by cable or Bluetooth (HID++ 2.0) | – |
 | SteelSeries | Arctis 1 / 7 / 7+ / 9, Arctis Nova 3P / 5 / 7 / Pro Wireless | – |
-| HyperX | Cloud Alpha Wireless, Cloud Flight | – |
+| HyperX | Cloud II Wireless, Cloud Alpha Wireless, Cloud Flight | – |
 | Corsair | Void family wireless headsets | – |
 | ASUS | ROG Pugio II | ✅ |
 | ASUS | Other ROG / TUF wireless mice: Keris, Gladius II / III, Chakram, Harpe Ace, Spatha X, Strix Carry / Impact, TUF M4, MD200 / MD301 | – |

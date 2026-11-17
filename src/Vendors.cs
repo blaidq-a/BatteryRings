@@ -38,6 +38,7 @@ static class VendorDevices
             try { Logitech.Scan(list); } catch { }
             try { RazerMice.Scan(list); } catch { }
             try { Headsets.Scan(list); } catch { }
+            try { HyperXCloud2.Scan(list); } catch { }
             try { AsusMice.Scan(list); } catch { }
             try { PlayStation.Scan(list); } catch { }
             try { HidBattery.Scan(list); } catch { }
@@ -99,6 +100,7 @@ static class VendorDevices
     [DllImport("hid.dll")] public static extern bool HidD_GetProductString(SafeFileHandle h, byte[] buf, int len);
     [DllImport("hid.dll")] public static extern bool HidD_SetFeature(SafeFileHandle h, byte[] buf, int len);
     [DllImport("hid.dll")] public static extern bool HidD_GetFeature(SafeFileHandle h, byte[] buf, int len);
+    [DllImport("hid.dll")] public static extern bool HidD_GetInputReport(SafeFileHandle h, byte[] buf, int len);
 }
 
 // ---------------- Logitech HID++ 2.0 ----------------
@@ -693,5 +695,70 @@ static class PlayStation
         }
         catch { return null; }
         finally { l.Dispose(); }
+    }
+}
+
+// ---------------- HyperX Cloud II Wireless ----------------
+// Two dongle generations with different framing (from HeadsetControl):
+//   HP-branded    03F0:0696 / 03F0:018B   request 06 FF BB <cmd>            reply 06 FF BB <cmd> ...
+//   Kingston      0951:1718               request 06 00 02 00 9A 00 00 68 4A 8E 0A 00 00 00 BB <cmd>   reply 0B ?? BB <cmd> ...
+//   cmd 0x02: battery level at byte 7;  cmd 0x03: charging (1) at byte 4.   Not tested on real hardware here.
+static class HyperXCloud2
+{
+    public static void Scan(List<Found> list)
+    {
+        foreach (var vid in new[] { 0x03F0, 0x0951 })
+        {
+            bool kingston = vid == 0x0951;
+            foreach (var c in VendorDevices.Collections(vid))
+            {
+                int pid = VendorDevices.Pid(c.Key);
+                if (kingston ? pid != 0x1718 : (pid != 0x0696 && pid != 0x018B)) continue;
+                if (c.Value.UsagePage < 0xFF00 || c.Value.OutputReportByteLength < 17) continue;
+                var r = Read(c.Key, c.Value, kingston);
+                if (r == null) continue;
+                list.Add(new Found { Id = "hyperx-c2:" + pid.ToString("x4"), Name = VendorDevices.Product(c.Key) ?? "HyperX Cloud II Wireless", Kind = Kind.Headset, Reading = r });
+                break;
+            }
+        }
+    }
+
+    static Reading Read(string path, Native.HIDP_CAPS caps, bool kingston)
+    {
+        var l = HidLink.Open(path, caps.OutputReportByteLength);
+        if (l == null) return null;
+        try
+        {
+            var lvl = Ask(l, path, caps, kingston, 0x02);
+            if (lvl == null || lvl.Length < 8 || lvl[7] > 100) return null;
+            var chg = Ask(l, path, caps, kingston, 0x03);
+            if (lvl[7] == 0 && (chg == null || chg[4] != 1)) return null; // headset off
+            return new Reading { Present = true, Percent = lvl[7], Charging = chg != null && chg.Length > 4 && chg[4] == 1 };
+        }
+        catch { return null; }
+        finally { l.Dispose(); }
+    }
+
+    static byte[] Ask(HidLink l, string path, Native.HIDP_CAPS caps, bool kingston, byte cmd)
+    {
+        l.Drain();
+        if (kingston)
+        {
+            // the Kingston dongle wants an input report read before each command
+            try
+            {
+                using (var h = Native.CreateFile(path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero))
+                {
+                    var ir = new byte[Math.Max(64, (int)caps.InputReportByteLength)];
+                    ir[0] = 0x06;
+                    VendorDevices.HidD_GetInputReport(h, ir, caps.InputReportByteLength);
+                }
+            }
+            catch { }
+            l.Send(0x06, 0x00, 0x02, 0x00, 0x9A, 0x00, 0x00, 0x68, 0x4A, 0x8E, 0x0A, 0x00, 0x00, 0x00, 0xBB, cmd, 0x00);
+            return l.Wait(b => b[0] == 0x0B && b[2] == 0xBB && b[3] == cmd, 1000);
+        }
+        l.Send(0x06, 0xFF, 0xBB, cmd, 0x00);
+        return l.Wait(b => b[0] == 0x06 && b[1] == 0xFF && b[2] == 0xBB && b[3] == cmd, 1000);
     }
 }
