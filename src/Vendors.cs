@@ -542,3 +542,87 @@ static class AsusMice
         }
     }
 }
+
+// ---------------- Device report (Settings > Copy device report) ----------------
+// A plain-text list of HID interfaces to help add support for a device that does not show up.
+// Contains only vendor/product ids, interface numbers, report sizes and product names: no serial numbers or paths.
+static class Diagnostics
+{
+    public static Func<List<string>> Shown; // devices the UI currently shows (set by the UI)
+
+    public static string Report()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("BatteryRings " + System.Windows.Forms.Application.ProductVersion + " device report");
+        sb.AppendLine("Windows " + Environment.OSVersion.Version);
+        sb.AppendLine();
+        sb.AppendLine("HID interfaces (vid:pid  mi  col  usage page:usage  in/out/feature  product):");
+        var seen = new HashSet<string>();
+        foreach (var p in Native.HidPaths("hid#"))
+        {
+            string lp = p.ToLowerInvariant();
+            int vi = lp.IndexOf("vid_"); if (vi < 0) continue;
+            string vid = lp.Substring(vi + 4, 4);
+            int pid = VendorDevices.Pid(p);
+            int mi = VendorDevices.Interface(p);
+            int ci = lp.IndexOf("&col");
+            string col = ci >= 0 ? lp.Substring(ci + 4, 2) : "--";
+            Native.HIDP_CAPS c;
+            if (!Native.GetCaps(p, out c)) continue;
+            string line = string.Format("{0}:{1:x4}  {2}  {3}  {4:X4}:{5:X4}  {6}/{7}/{8}  {9}",
+                vid, pid, mi < 0 ? "--" : mi.ToString("x2"), col, c.UsagePage, c.Usage,
+                c.InputReportByteLength, c.OutputReportByteLength, c.FeatureReportByteLength, VendorDevices.Product(p) ?? "");
+            if (seen.Add(line)) sb.AppendLine("  " + line);
+        }
+        sb.AppendLine();
+        sb.AppendLine("Compx (373b) battery query:");
+        foreach (var p in Native.HidPaths("vid_373b&"))
+        {
+            Native.HIDP_CAPS c;
+            if (!Native.GetCaps(p, out c) || c.UsagePage != 0xFF02 || c.OutputReportByteLength < 17) continue;
+            var l = HidLink.Open(p, c.OutputReportByteLength);
+            if (l == null) { sb.AppendLine("  pid " + VendorDevices.Pid(p).ToString("x4") + ": cannot open"); continue; }
+            try
+            {
+                l.Drain();
+                l.Send(8, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x49);
+                var r = l.Wait(b => b[0] == 8 && b[1] == 4, 800);
+                sb.AppendLine("  pid " + VendorDevices.Pid(p).ToString("x4") + " (" + c.OutputReportByteLength + " bytes): " +
+                    (r == null ? "no answer" : BitConverter.ToString(r, 0, Math.Min(20, r.Length))));
+            }
+            catch (Exception e) { sb.AppendLine("  error: " + e.Message); }
+            finally { l.Dispose(); }
+        }
+        sb.AppendLine();
+        sb.AppendLine("Shown by BatteryRings:");
+        try
+        {
+            var shown = Shown != null ? Shown() : null;
+            if (shown != null) foreach (var x in shown) sb.AppendLine("  " + x);
+            else foreach (var f in GenericDevices.Read()) sb.AppendLine("  " + f.Kind + "  " + f.Name + "  " + f.Reading.Percent + "%");
+        }
+        catch { }
+        return sb.ToString();
+    }
+
+    // New-issue URL on GitHub with title and body filled in. Browsers and GitHub cap URL length,
+    // so a long report is cut; the full report is then put on the clipboard to paste.
+    public static string IssueUrl(string description, string report, out bool copiedFull)
+    {
+        copiedFull = false;
+        string first = description.Split('\n')[0].Trim();
+        if (first.Length > 70) first = first.Substring(0, 70) + "…";
+        string body = "### What happened\n" + description + "\n";
+        if (report.Length > 0) body += "\n### Device report\n```\n" + report + "```\n";
+        const int max = 6000; // characters before encoding; keeps the URL well under browser limits
+        if (body.Length > max && report.Length > 0)
+        {
+            try { System.Windows.Forms.Clipboard.SetText(report); copiedFull = true; } catch { }
+            int keep = Math.Max(0, max - description.Length - 200);
+            body = "### What happened\n" + description + "\n\n### Device report (shortened, full report is on the clipboard: paste it below)\n```\n"
+                + report.Substring(0, Math.Min(keep, report.Length)) + "\n```\n";
+        }
+        return "https://github.com/blaidq-a/BatteryRings/issues/new?labels=bug&title=" + Uri.EscapeDataString(first)
+            + "&body=" + Uri.EscapeDataString(body);
+    }
+}

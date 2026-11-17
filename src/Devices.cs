@@ -458,17 +458,41 @@ class AtkMouse : Device
         IsAtk = DeviceName.IndexOf("A9 Ultimate", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    static List<string> Candidates()
+    // Compx command interface: vendor page 0xFF02. Most use 17-byte reports; some firmwares (e.g. on cable)
+    // use longer ones, so accept those too and pad the 17-byte command.
+    readonly Dictionary<string, int> outLens = new Dictionary<string, int>();
+    List<string> Candidates()
     {
         var list = new List<string>();
         foreach (var p in Native.HidPaths("vid_373b&"))
         {
             Native.HIDP_CAPS c;
             if (!Native.GetCaps(p, out c)) continue;
-            if (c.UsagePage == 0xFF02 && c.InputReportByteLength == 17 && c.OutputReportByteLength == 17) list.Add(p);
+            if (c.UsagePage == 0xFF02 && c.InputReportByteLength >= 17 && c.OutputReportByteLength >= 17)
+            {
+                list.Add(p);
+                outLens[p] = c.OutputReportByteLength;
+            }
         }
+        // 17-byte interfaces first: those are the ones known to answer
+        list.Sort((a, b) => outLens[a].CompareTo(outLens[b]));
         return list;
     }
+
+    // true if a Compx device that is not a dongle (= the mouse on its cable) is plugged in
+    bool CablePresent(List<string> paths)
+    {
+        foreach (var p in Native.HidPaths("vid_373b&"))
+        {
+            string n;
+            if (!names.TryGetValue(p, out n)) { n = VendorDevices.Product(p) ?? ""; names[p] = n; }
+            if (n.Length > 0 && n.IndexOf("dongle", StringComparison.OrdinalIgnoreCase) < 0
+                && n.IndexOf("receiver", StringComparison.OrdinalIgnoreCase) < 0 && n.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0)
+                return true;
+        }
+        return false;
+    }
+    int lastPercent = -1;
 
     protected override HidLink Connect() { return null; } // handled inside Read
 
@@ -486,19 +510,26 @@ class AtkMouse : Device
             {
                 UpdateName(linkPath);
                 Query(r);
-                if (r.Percent >= 0) return r;
+                if (r.Percent >= 0) { lastPercent = r.Percent; return r; }
             }
             // 2) digerlerini sirayla dene (kablo takildiysa kablolu baglanti burada bulunur)
             foreach (var p in paths)
             {
                 if (p == linkPath && link != null && !link.Dead) continue;
-                var l = HidLink.Open(p, 17);
+                var l = HidLink.Open(p, outLens.ContainsKey(p) ? outLens[p] : 17);
                 if (l == null) continue;
                 var old = link; link = l;
                 UpdateName(p);
                 Query(r);
-                if (r.Percent >= 0) { if (old != null) old.Dispose(); linkPath = p; return r; }
+                if (r.Percent >= 0) { if (old != null) old.Dispose(); linkPath = p; lastPercent = r.Percent; return r; }
                 link = old; l.Dispose();
+            }
+            // On the cable some mice stop answering battery queries. Keep showing it as charging
+            // with the last known level instead of making it disappear.
+            if (lastPercent >= 0 && CablePresent(paths))
+            {
+                r.Percent = lastPercent; r.Charging = true;
+                return r;
             }
         }
         catch { Drop(); }

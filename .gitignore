@@ -4,3 +4,4 @@ dist/
 test_result.txt
 *.png
 !docs/*.png
+device_report.txt

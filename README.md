@@ -32,7 +32,8 @@ Hover over (or click) the icon to see every device in detail.
 Untested rows follow public protocol notes (see *Thanks*). If you own one, please open an issue saying whether it works.
 
 - The icon shows the first three devices as rings; the panel lists all of them.
-- Devices that are not connected are not shown. With a single device, its icon sits in the middle of the ring.
+- Devices that are not connected are not shown. With a single device, its icon sits in the middle of the ring;
+  with none, the icon is an empty ring and the panel says "No devices found".
 - While charging, the ring turns yellow with a moving light; below 15% it turns red and pulses.
 - Optional alerts at 20%, 10% and 5%.
 
@@ -44,6 +45,8 @@ Click the gear in the panel:
 - Open the panel when hovering the icon (otherwise click it)
 - Theme: Default (follows Windows), Sakura, Aqua, Midnight, Forest, Sunset
 - Device order: drag a device up or down; the top one is the outer ring
+- Rename a device or change its icon (pencil)
+- Footer buttons: check for updates, report a problem, quit
 - Low battery alerts
 - Install updates automatically, and a **Check for updates** button
 - Show or hide each device
@@ -85,6 +88,15 @@ Output: `dist\BatteryRings.exe`. Command line options:
 | `/portable` | Run without installing |
 | `/install`, `/uninstall` | Silent install / uninstall |
 | `/test` | Read all devices once and write the result to `test_result.txt` |
+| `/report` | Write the device report (see below) to `device_report.txt` |
+
+## Reporting a problem
+
+If a device does not show up or shows wrong values, open Settings (gear) and click the speech-bubble button
+(*Report a problem*). Describe the problem; BatteryRings attaches a device report and opens a new issue here
+on GitHub, which you can read and edit before submitting (a free GitHub account is needed). Issues are public.
+The device report lists only vendor/product ids, interface details and product names: no serial numbers,
+user names or file paths.
 
 ## How it works
 

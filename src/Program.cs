@@ -15,8 +15,8 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("BatteryRings")]
 [assembly: AssemblyCompany("BatteryRings")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.4.1.0")]
-[assembly: AssemblyFileVersion("1.4.1.0")]
+[assembly: AssemblyVersion("1.4.2.0")]
+[assembly: AssemblyFileVersion("1.4.2.0")]
 // Guvenlik: P/Invoke DLL'leri yalnizca System32'den yuklenir (exe'nin yanina konan sahte DLL calismaz)
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
@@ -43,6 +43,7 @@ static class Program
         Native.SetProcessDPIAware();
         string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "";
         if (mode == "/test") { SelfTest(); return; }
+        if (mode == "/report") { File.WriteAllText("device_report.txt", Diagnostics.Report()); return; }
         if (mode == "/checkupdate")
         {
             Updater.Check(true, null);

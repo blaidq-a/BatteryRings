@@ -392,6 +392,12 @@ class BatteryUI : ApplicationContext
         };
 
         SystemEvents.UserPreferenceChanged += OnPref;
+        Diagnostics.Shown = delegate
+        {
+            var l = new List<string>();
+            foreach (var x in slots) if (x.Active) l.Add(x.RealKind + "  " + (x.RealName ?? x.Name) + "  " + x.Last.Percent + "%" + (x.Last.Charging ? " charging" : ""));
+            return l;
+        };
         Refresh();
 
         // updates: first check shortly after start, then every 6 hours
@@ -437,6 +443,20 @@ class BatteryUI : ApplicationContext
                     }
                 }
                 catch { }
+                try
+                {
+                    using (var dlg = new ReportDialog())
+                    {
+                        dlg.StartPosition = FormStartPosition.Manual; dlg.Location = new Point(-2000, -2000);
+                        dlg.Show(); dlg.Refresh();
+                        using (var bm = new Bitmap(dlg.Width, dlg.Height))
+                        {
+                            dlg.DrawToBitmap(bm, new Rectangle(0, 0, dlg.Width, dlg.Height));
+                            bm.Save(Path.Combine(dd, "report.png"));
+                        }
+                    }
+                }
+                catch { }
                 using (var b = RingIcon(64)) b.Save(Path.Combine(LayeredWindow.DumpDir, "icon64.png"));
                 using (var b = RingIcon(16)) b.Save(Path.Combine(LayeredWindow.DumpDir, "icon16.png"));
                 icon.Visible = false; ExitThread();
@@ -446,6 +466,53 @@ class BatteryUI : ApplicationContext
     }
 
     readonly System.Windows.Forms.Timer updates = new System.Windows.Forms.Timer();
+    string reportStatus = "";
+
+    // Settings > Report a problem: user describes it, we attach the device report and open a pre-filled GitHub issue.
+    // Nothing is sent by the app itself; the user sees the text on GitHub and submits it.
+    void ReportProblem()
+    {
+        HidePanel();
+        using (var dlg = new ReportDialog())
+        {
+            if (dlg.ShowDialog() == DialogResult.OK)
+            {
+                string text = dlg.Description;
+                bool attach = dlg.IncludeReport;
+                reportStatus = "Preparing…";
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    string rep = "";
+                    if (attach) { try { rep = Diagnostics.Report(); } catch (Exception e) { rep = "report failed: " + e.Message; } }
+                    invoker.BeginInvoke((Action)delegate
+                    {
+                        bool copied;
+                        string url = Diagnostics.IssueUrl(text, rep, out copied);
+                        try { System.Diagnostics.Process.Start(url); reportStatus = copied ? "Opened GitHub, full report copied" : "Opened GitHub"; }
+                        catch { reportStatus = "Could not open the browser"; }
+                    });
+                });
+            }
+        }
+        ShowSettings();
+    }
+    void CopyReport()
+    {
+        reportStatus = "Collecting…";
+        DrawPanel();
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            string text;
+            try { text = Diagnostics.Report(); } catch (Exception e) { text = "Report failed: " + e.Message; }
+            invoker.BeginInvoke((Action)delegate
+            {
+                try { Clipboard.SetText(text); reportStatus = "Copied to clipboard"; }
+                catch { reportStatus = "Could not copy"; }
+                if (panel != null && panel.Visible) DrawPanel();
+            });
+        });
+    }
+
     void PanelChanged() { try { invoker.BeginInvoke((Action)delegate { if (panel != null && panel.Visible) DrawPanel(); }); } catch { } }
 
     void Kick() { try { invoker.BeginInvoke((Action)Refresh); } catch { } }
@@ -624,8 +691,7 @@ class BatteryUI : ApplicationContext
     void DrawIcon()
     {
         var act = ActiveSlots();
-        bool any = act.Count > 0;
-        if (any)
+        // the icon always stays in the taskbar; with no devices it is an empty ring and the panel says so
         {
             int S = Math.Max(16, SystemInformation.SmallIconSize.Width);
             using (var bmp = RingIcon(S))
@@ -637,8 +703,7 @@ class BatteryUI : ApplicationContext
             }
             icon.Text = ""; // no tooltip: it would cover the panel
         }
-        else HidePanel();
-        if (icon.Visible != any) icon.Visible = any;
+        if (!icon.Visible) icon.Visible = true;
 
         bool a = false;
         foreach (var s in act)
@@ -663,7 +728,14 @@ class BatteryUI : ApplicationContext
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             g.Clear(Color.Transparent);
             float c = S / 2f;
-            if (act.Count == 1)
+            if (act.Count == 0)
+            {
+                // empty ring: no device found
+                float sw = 1.9f * k, r1 = c - sw / 2f - 0.15f * k;
+                using (var pen = new Pen(Look.A(Look.Fg, 110), sw)) g.DrawEllipse(pen, c - r1, c - r1, r1 * 2, r1 * 2);
+                using (var br = new SolidBrush(Look.A(Look.Fg, 150))) g.FillEllipse(br, c - 1.3f * k, c - 1.3f * k, 2.6f * k, 2.6f * k);
+            }
+            else if (act.Count == 1)
             {
                 float sw = 1.9f * k, r1 = c - sw / 2f - 0.15f * k;
                 Ring(g, new RectangleF(c - r1, c - r1, r1 * 2, r1 * 2), sw, act[0], k);
@@ -721,7 +793,6 @@ class BatteryUI : ApplicationContext
 
     void ShowPanel(bool pin)
     {
-        if (ActiveSlots().Count == 0 && !settingsView) return;
         pinned = pin || pinned;
         if (panel == null || panel.IsDisposed)
         {
@@ -840,17 +911,18 @@ class BatteryUI : ApplicationContext
 
     static bool Multi(Slot s) { return s.Last.Parts != null && s.Last.Parts.Count > 0; }
 
-    const float PW = 300, PPad = 16, HeadH = 46, RowH = 52, MultiRowH = 80, SetRowH = 40, ThemeRowH = 62;
+    const float PW = 300, PPad = 16, HeadH = 46, RowH = 52, MultiRowH = 80, SetRowH = 40, ThemeRowH = 40;
 
     void DrawPanel()
     {
         if (panel == null) return;
         float k = Look.K;
         var devs = settingsView ? Sorted(slots.FindAll(s => s.Active)) : ActiveSlots();
-        if (!settingsView && devs.Count == 0) { HidePanel(); return; }
+        bool empty = !settingsView && devs.Count == 0;
 
         float hh = HeadH;
-        if (settingsView) hh += SetRowH * 4 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 50 + 34;
+        if (settingsView) hh += SetRowH * 4 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 56;
+        else if (empty) hh += 64;
         else foreach (var s in devs) hh += Multi(s) ? MultiRowH : RowH;
         hh += 8;
         int W = (int)(PW * k), H = (int)(hh * k);
@@ -930,6 +1002,11 @@ class BatteryUI : ApplicationContext
         {
             float L = PPad * k, R = W - PPad * k, y = HeadH * k;
             float gs = 16 * k, tx = L + gs + 12 * k;
+            if (devs.Count == 0)
+            {
+                using (var br = new SolidBrush(fg)) g.DrawString("No devices found", fName, br, L, y + 6 * k, sf);
+                using (var br = new SolidBrush(sub)) g.DrawString("Turn on or connect a wireless device", fSmall, br, L, y + 30 * k, sf);
+            }
             foreach (var s in devs)
             {
                 var r = s.Last;
@@ -970,7 +1047,7 @@ class BatteryUI : ApplicationContext
         float k = Look.K;
         Color fg = Look.Fg, sub = Look.A(fg, Look.Light ? 175 : 180);
         var sf = StringFormat.GenericTypographic;
-        Header(g, W, "Settings", "", true, delegate { settingsView = false; if (ActiveSlots().Count == 0) HidePanel(); });
+        Header(g, W, "Settings", "", true, delegate { settingsView = false; });
 
         using (var f = new Font("Segoe UI", 14f * k, GraphicsUnit.Pixel))
         using (var fSmall = new Font("Segoe UI Semibold", 11.5f * k, GraphicsUnit.Pixel))
@@ -982,12 +1059,24 @@ class BatteryUI : ApplicationContext
             Toggle(g, f, L, R, ref y, null, "Install updates automatically", Settings.AutoUpdate, delegate { Settings.AutoUpdate = !Settings.AutoUpdate; });
 
             y += 10 * k;
-            using (var br = new SolidBrush(sub)) g.DrawString("THEME", fSmall, br, L, y, sf);
+            using (var br = new SolidBrush(sub))
+            {
+                g.DrawString("THEME", fSmall, br, L, y, sf);
+                string tn = Themes.Current.Name;
+                g.DrawString(tn, fSmall, br, R - MeasureW(g, fSmall, tn), y, sf);
+            }
             y += 20 * k;
             ThemePicker(g, f, L, R, ref y);
 
             y += 10 * k;
-            using (var br = new SolidBrush(sub)) g.DrawString("DEVICES  ·  DRAG TO REORDER, TOP = OUTER RING", fSmall, br, L, y, sf);
+            using (var br = new SolidBrush(sub))
+            {
+                g.DrawString("DEVICES", fSmall, br, L, y, sf);
+                string hint = "drag to reorder";
+                using (var fh = new Font("Segoe UI", 11.5f * k, GraphicsUnit.Pixel))
+                using (var bh = new SolidBrush(Look.A(fg, Look.Light ? 120 : 110)))
+                    g.DrawString(hint, fh, bh, R - MeasureW(g, fh, hint), y - 1 * k, sf);
+            }
             y += 20 * k;
             if (devs.Count == 0)
             {
@@ -1022,32 +1111,55 @@ class BatteryUI : ApplicationContext
                     g.DrawLine(pen, L - 4 * k, ly, R + 4 * k, ly);
             }
 
-            // updates
-            y += 8 * k;
-            float ux = Link(g, f, L - 8 * k + MeasureW(g, f, "Check for updates") + 16 * k, y, "Check for updates", Look.Accent, delegate { Updater.Check(true, PanelChanged); });
-            if (Updater.Status.Length > 0)
-                using (var br = new SolidBrush(sub))
-                {
-                    string st = Updater.Status;
-                    float maxW = R - (L + MeasureW(g, f, "Check for updates") + 20 * k);
-                    using (var fs = new Font("Segoe UI", 12.5f * k, GraphicsUnit.Pixel))
-                    {
-                        while (st.Length > 4 && MeasureW(g, fs, st) > maxW) st = st.Substring(0, st.Length - 2);
-                        if (st != Updater.Status) st = st.TrimEnd() + "…";
-                        g.DrawString(st, fs, br, R - MeasureW(g, fs, st), y + 5 * k, sf);
-                    }
-                }
-            y += 34 * k;
-
-            // footer
-            y += 4 * k;
+            // footer: credit / status on the left, small icon buttons on the right
+            y += 6 * k;
             using (var pen = new Pen(Look.A(fg, Look.Light ? 22 : 24), 1f)) g.DrawLine(pen, L, y, R, y);
-            y += 12 * k;
-            using (var br = new SolidBrush(sub))
-                g.DrawString("by blaidq  ·  v" + Application.ProductVersion.Substring(0, Application.ProductVersion.LastIndexOf('.')), f, br, L, y + 4 * k, sf);
-            float x = R;
-            x = Link(g, f, x, y, "Quit", fg, delegate { icon.Visible = false; ExitThread(); });
+            y += 10 * k;
+            float bx = R + 4 * k;
+            footerLabel = null;
+            bx = IconButton(g, bx, y, "", "Quit", delegate { icon.Visible = false; ExitThread(); });
+            bx = IconButton(g, bx, y, "", "Report a problem", ReportProblem);
+            bx = IconButton(g, bx, y, "", "Check for updates", delegate { Updater.Check(true, PanelChanged); });
+            string ver = "v" + Application.ProductVersion.Substring(0, Application.ProductVersion.LastIndexOf('.'));
+            // status messages stay for ~10 s (longer while something is in progress), then the credit returns
+            if (Updater.Status != lastUpd) { lastUpd = Updater.Status; lastUpdAt = DateTime.Now; }
+            if (reportStatus != lastRep) { lastRep = reportStatus; lastRepAt = DateTime.Now; }
+            Func<string, DateTime, bool> fresh = (st, at) => st.Length > 0 && (st.EndsWith("…") || (DateTime.Now - at).TotalSeconds < 10);
+            string left = footerLabel                                   // name of the hovered button
+                ?? (fresh(reportStatus, lastRepAt) ? reportStatus : null)
+                ?? (fresh(Updater.Status, lastUpdAt) ? Updater.Status : null)
+                ?? "by blaidq  ·  " + ver;
+            using (var fs = new Font("Segoe UI", 12.5f * k, GraphicsUnit.Pixel))
+            {
+                float maxW = bx - L - 6 * k;
+                string t = left;
+                while (t.Length > 4 && MeasureW(g, fs, t) > maxW) t = t.Substring(0, t.Length - 2);
+                if (t != left) t = t.TrimEnd() + "…";
+                using (var br = new SolidBrush(footerLabel != null ? fg : sub)) g.DrawString(t, fs, br, L, y + 7 * k, sf);
+            }
         }
+    }
+
+    string footerLabel;
+    string lastUpd = "", lastRep = "";
+    DateTime lastUpdAt, lastRepAt;
+
+    // Small square icon button, laid out right to left; returns the left edge for the next one
+    float IconButton(Graphics g, float right, float y, string glyph, string label, Action a)
+    {
+        float k = Look.K;
+        var r = new RectangleF(right - 30 * k, y, 30 * k, 30 * k);
+        int idx = hits.Count;
+        hits.Add(new Hit { R = r, A = a });
+        bool h = hot == idx;
+        if (h)
+        {
+            footerLabel = label;
+            using (var p = Look.Round(r, 5 * k))
+            using (var br = new SolidBrush(Look.A(Look.Fg, Look.Light ? 18 : 24))) g.FillPath(br, p);
+        }
+        Look.Icon(g, glyph, r, 14 * k, Look.A(Look.Fg, h ? 235 : 160));
+        return r.X - 2 * k;
     }
 
     // Row of colour swatches; the chosen one gets a ring, its name sits underneath
@@ -1082,8 +1194,6 @@ class BatteryUI : ApplicationContext
             else if (hot == idx)
                 using (var pen = new Pen(Look.A(Look.Fg, 90), 1.5f * k)) g.DrawEllipse(pen, RectangleF.Inflate(cell, -1 * k, -1 * k));
         }
-        using (var br = new SolidBrush(Look.A(Look.Fg, 200)))
-            g.DrawString(cur.Name, f, br, L, y + d + 10 * k, StringFormat.GenericTypographic);
         y += ThemeRowH * k;
     }
 
@@ -1406,4 +1516,77 @@ class DeviceEditor : Form
                     g.DrawString(KindNames[i], f, br, new RectangleF(r.X - 4 * k, r.Y + 44 * k, r.Width + 8 * k, 20 * k), sf);
             }
     }
+}
+
+// "Report a problem" dialog
+class ReportDialog : Form
+{
+    public string Description { get { return box.Text.Trim(); } }
+    public bool IncludeReport { get { return chk.Checked; } }
+    readonly TextBox box = new TextBox();
+    readonly CheckBox chk = new CheckBox();
+    Color bg, fg;
+
+    public ReportDialog()
+    {
+        Look.Panel = true;
+        try { bg = Look.PanelBg; fg = Look.Fg; } finally { Look.Panel = false; }
+        float k = Look.K;
+        Text = "Report a problem";
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = MinimizeBox = false;
+        ShowInTaskbar = false; TopMost = true;
+        StartPosition = FormStartPosition.CenterScreen;
+        BackColor = bg; ForeColor = fg;
+        Font = new Font("Segoe UI", 10f);
+        ClientSize = new Size((int)(420 * k), (int)(338 * k));
+
+        var lbl = new Label { Text = "What is wrong? (device, what you expected, what happened)", AutoSize = true, Location = new Point((int)(16 * k), (int)(14 * k)), ForeColor = Look.A(fg, 200) };
+        box.Multiline = true; box.ScrollBars = ScrollBars.Vertical; box.MaxLength = 2000;
+        box.Location = new Point((int)(16 * k), (int)(38 * k)); box.Size = new Size((int)(388 * k), (int)(140 * k));
+        box.BackColor = Blend(bg, fg, 0.08f); box.ForeColor = fg; box.BorderStyle = BorderStyle.FixedSingle;
+        chk.Text = "Attach device report (device ids, interfaces and product names; no personal data)";
+        chk.Checked = true; chk.AutoSize = false; chk.Size = new Size((int)(388 * k), (int)(40 * k));
+        chk.Location = new Point((int)(16 * k), (int)(186 * k)); chk.ForeColor = fg;
+        var note = new Label
+        {
+            Text = "This opens a new issue on GitHub with the text filled in. You can read and edit it there before sending (needs a free GitHub account).",
+            Location = new Point((int)(16 * k), (int)(228 * k)), Size = new Size((int)(388 * k), (int)(58 * k)), ForeColor = Look.A(fg, 160)
+        };
+        var ok = Btn("Open on GitHub", (int)(264 * k), (int)(140 * k), true);
+        ok.Click += delegate
+        {
+            if (Description.Length < 3) { box.Focus(); return; }
+            DialogResult = DialogResult.OK;
+        };
+        var cancel = Btn("Cancel", (int)(160 * k), (int)(96 * k), false);
+        cancel.Click += delegate { DialogResult = DialogResult.Cancel; };
+        CancelButton = cancel;
+        Controls.AddRange(new Control[] { lbl, box, chk, note, ok, cancel });
+    }
+
+    Button Btn(string t, int x, int w, bool primary)
+    {
+        float k = Look.K;
+        var b = new Button
+        {
+            Text = t, FlatStyle = FlatStyle.Flat, Location = new Point(x, (int)(292 * k)), Size = new Size(w, (int)(32 * k)),
+            BackColor = primary ? Look.Accent : Blend(bg, fg, 0.10f), ForeColor = primary ? Color.White : fg, UseVisualStyleBackColor = false
+        };
+        b.FlatAppearance.BorderSize = 0;
+        return b;
+    }
+
+    static Color Blend(Color a, Color b, float t)
+    {
+        return Color.FromArgb(255, (int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        int dark = (bg.R + bg.G + bg.B) / 3 < 128 ? 1 : 0;
+        try { DwmSetWindowAttribute(Handle, 20, ref dark, 4); } catch { }
+    }
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
 }
