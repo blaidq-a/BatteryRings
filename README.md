@@ -19,7 +19,7 @@ Hover over (or click) the icon to see every device in detail.
 
 **Optional:**
 - **Your phone**, through Microsoft Phone Link: battery percentage and charging, the same value Phone Link shows in the Start menu.
-  Off by default; turn on *Phone battery (Phone Link)* in Settings. Needs Phone Link set up with the phone connected.
+  Off by default; turn on the *Phone (Phone Link)* switch under Devices in Settings. Needs Phone Link set up with the phone connected.
 
 **Brand protocols:**
 
@@ -60,7 +60,7 @@ Click the gear in the panel:
 - Footer buttons: check for updates, report a problem, quit
 - Low battery alerts
 - Install updates automatically, and a **Check for updates** button
-- Phone battery (Phone Link), off by default
+- Phone battery: the *Phone (Phone Link)* switch under Devices, off by default (shown when Phone Link is installed)
 - Show or hide each device
 - Quit
 

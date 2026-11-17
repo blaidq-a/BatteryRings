@@ -622,7 +622,7 @@ class BatteryUI : ApplicationContext
             Apply(s, f.Reading);
         }
         foreach (var s in slots.ToArray())
-            if (s.Id.Contains(":") && !ids.Contains(s.Id))
+            if ((s.Id.Contains(":") || s.Id == "phonelink") && !ids.Contains(s.Id))
             {
                 Apply(s, new Reading { Present = false });
                 if (!s.Active) slots.Remove(s);
@@ -1009,7 +1009,7 @@ class BatteryUI : ApplicationContext
         bool empty = !settingsView && devs.Count == 0;
 
         float hh = HeadH;
-        if (settingsView) hh += SetRowH * 5 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count) * SetRowH + 56;
+        if (settingsView) hh += SetRowH * 4 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count + (PhoneOffRow ? 1 : 0)) * SetRowH + 56;
         else if (empty) hh += 64;
         else foreach (var s in devs) hh += Multi(s) ? MultiRowH : RowH;
         hh += 8;
@@ -1090,7 +1090,7 @@ class BatteryUI : ApplicationContext
         {
             float L = PPad * k, R = W - PPad * k, y = HeadH * k;
             float gs = 16 * k, tx = L + gs + 12 * k;
-            if (devs.Count == 0)
+            if (devs.Count == 0 && !PhoneOffRow)
             {
                 using (var br = new SolidBrush(fg)) g.DrawString("No devices found", fName, br, L, y + 6 * k, sf);
                 using (var br = new SolidBrush(sub)) g.DrawString("Turn on or connect a wireless device", fSmall, br, L, y + 30 * k, sf);
@@ -1145,7 +1145,6 @@ class BatteryUI : ApplicationContext
             Toggle(g, f, L, R, ref y, null, "Open when hovering the icon", Settings.HoverOpen, delegate { Settings.HoverOpen = !Settings.HoverOpen; });
             Toggle(g, f, L, R, ref y, null, "Low battery alerts", Settings.Alerts, delegate { Settings.Alerts = !Settings.Alerts; });
             Toggle(g, f, L, R, ref y, null, "Install updates automatically", Settings.AutoUpdate, delegate { Settings.AutoUpdate = !Settings.AutoUpdate; });
-            Toggle(g, f, L, R, ref y, null, "Phone battery (Phone Link)", Settings.PhoneLink, delegate { Settings.PhoneLink = !Settings.PhoneLink; genericAt = DateTime.MinValue; Refresh(); });
 
             y += 10 * k;
             using (var br = new SolidBrush(sub))
@@ -1183,6 +1182,12 @@ class BatteryUI : ApplicationContext
                         using (var br = new SolidBrush(Look.A(Look.Accent, 40))) g.FillPath(br, p);
                         using (var pen = new Pen(Look.Accent, 1.2f * k)) g.DrawPath(pen, p);
                     }
+                if (s.Id == "phonelink")
+                {
+                    // the phone's switch turns Phone Link reading off
+                    Toggle(g, f, L, R, ref y, s, s.Name, true, delegate { SetPhoneLink(false); });
+                    continue;
+                }
                 Toggle(g, f, L, R, ref y, s, s.Name, !hidden.Contains(s.Id), delegate
                 {
                     if (hidden.Contains(sl.Id)) hidden.Remove(sl.Id); else hidden.Add(sl.Id);
@@ -1190,6 +1195,9 @@ class BatteryUI : ApplicationContext
                     DrawIcon();
                 });
             }
+            // phone battery is opt-in: offered as a switched-off device row when Phone Link is installed
+            if (PhoneOffRow)
+                Toggle(g, f, L, R, ref y, phoneOffSlot, "Phone (Phone Link)", false, delegate { SetPhoneLink(true); }, false);
             if (dragging && devRows.Count > 1)
             {
                 // where the dragged device will land
@@ -1227,6 +1235,24 @@ class BatteryUI : ApplicationContext
                 using (var br = new SolidBrush(footerLabel != null ? fg : sub)) g.DrawString(t, fs, br, L, y + 7 * k, sf);
             }
         }
+    }
+
+    readonly Slot phoneOffSlot = new Slot { Id = "phonelink-off", Name = "Phone (Phone Link)", Kind = Kind.Phone };
+    bool PhoneOffRow { get { return !Settings.PhoneLink && PhoneLink.Installed; } }
+
+    void SetPhoneLink(bool on)
+    {
+        Settings.PhoneLink = on;
+        if (!on)
+        {
+            // drop the phone right away instead of waiting for the next scan
+            generic.RemoveAll(x => x.Id == "phonelink");
+            slots.RemoveAll(x => x.Id == "phonelink");
+        }
+        genericAt = DateTime.MinValue;
+        Refresh();
+        DrawIcon();
+        if (panel != null && panel.Visible) DrawPanel();
     }
 
     string footerLabel;
@@ -1298,13 +1324,13 @@ class BatteryUI : ApplicationContext
         return i;
     }
 
-    void Toggle(Graphics g, Font f, float L, float R, ref float y, Slot dev, string label, bool on, Action a)
+    void Toggle(Graphics g, Font f, float L, float R, ref float y, Slot dev, string label, bool on, Action a, bool editable = true)
     {
         float k = Look.K;
         var row = new RectangleF(L - 8 * k, y, R - L + 16 * k, SetRowH * k);
         int penHit = -1;
         RectangleF pr = RectangleF.Empty;
-        if (dev != null)
+        if (dev != null && editable)
         {
             // pencil: rename / change icon (added first so it wins over the row's click area)
             pr = new RectangleF(R - 40 * k - 36 * k, y + 7 * k, 26 * k, 26 * k);
@@ -1331,15 +1357,15 @@ class BatteryUI : ApplicationContext
         if (dev != null)
         {
             // grip: the row can be dragged up or down
-            Look.Icon(g, "\uE700", new RectangleF(L - 4 * k, y + 13 * k, 14 * k, 14 * k), 10 * k, Look.A(Look.Fg, hot == idx ? 170 : 90));
-            Look.Glyph(g, dev.Kind, new RectangleF(L + 16 * k, y + 12 * k, 16 * k, 16 * k), Look.A(Look.Fg, 200));
+            if (editable) Look.Icon(g, "\uE700", new RectangleF(L - 4 * k, y + 13 * k, 14 * k, 14 * k), 10 * k, Look.A(Look.Fg, hot == idx ? 170 : 90));
+            Look.Glyph(g, dev.Kind, new RectangleF(L + 16 * k, y + 12 * k, 16 * k, 16 * k), Look.A(Look.Fg, editable ? 200 : 120));
             tx += 44 * k;
         }
         string t = label;
         float maxW = R - tx - (dev != null ? 86 : 52) * k;
         while (t.Length > 4 && g.MeasureString(t, f, PointF.Empty, StringFormat.GenericTypographic).Width > maxW) t = t.Substring(0, t.Length - 2);
         if (t != label) t = t.TrimEnd() + "…";
-        using (var br = new SolidBrush(Look.Fg)) g.DrawString(t, f, br, tx, y + 11 * k, StringFormat.GenericTypographic);
+        using (var br = new SolidBrush(editable ? Look.Fg : Look.A(Look.Fg, 150))) g.DrawString(t, f, br, tx, y + 11 * k, StringFormat.GenericTypographic);
 
         // Windows 11 style switch
         var sw = new RectangleF(R - 40 * k, y + 10 * k, 40 * k, 20 * k);

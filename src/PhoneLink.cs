@@ -14,6 +14,12 @@ static class PhoneLink
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         @"Packages\Microsoft.YourPhone_8wekyb3d8bbwe\LocalState\StartMenu\StartMenuCompanion.json");
 
+    // Phone Link is installed for this user (the settings show the phone switch only then)
+    public static bool Installed
+    {
+        get { return Directory.Exists(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(CardPath)))); }
+    }
+
     static DateTime cachedAt = DateTime.MinValue;
     static string cachedName;
     static int cachedPct = -1;
