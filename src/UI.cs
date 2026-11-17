@@ -179,6 +179,7 @@ static class Look
         using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
         {
             path.AddString(ch, fam, (int)FontStyle.Regular, box.Height, box, sf);
+            CenterIn(path, box);
             using (var br = new SolidBrush(c)) g.FillPath(br, path);
             using (var pen = new Pen(c, 0.35f * K) { LineJoin = LineJoin.Round }) g.DrawPath(pen, path);
         }
@@ -242,7 +243,21 @@ static class Look
         using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
         {
             path.AddString(glyph, fam, (int)FontStyle.Regular, size, box, sf);
+            CenterIn(path, box);
             using (var br = new SolidBrush(c)) g.FillPath(br, path);
+        }
+    }
+
+    // Font glyphs carry side bearings and a baseline offset, so text centering leaves them slightly off;
+    // move the actual outline so its visible bounds sit exactly in the middle of the box.
+    static void CenterIn(GraphicsPath path, RectangleF box)
+    {
+        var b = path.GetBounds();
+        if (b.Width <= 0 || b.Height <= 0) return;
+        using (var m = new Matrix())
+        {
+            m.Translate(box.X + box.Width / 2f - (b.X + b.Width / 2f), box.Y + box.Height / 2f - (b.Y + b.Height / 2f));
+            path.Transform(m);
         }
     }
 
