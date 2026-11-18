@@ -412,7 +412,7 @@ class BatteryUI : ApplicationContext
         {
             var l = new List<string>();
             // a phone's name is often its owner's name, and reports are public: never include it
-            foreach (var x in slots) if (x.Active) l.Add(x.RealKind + "  " + (x.Id == "phonelink" ? "(Phone Link phone)" : x.RealName ?? x.Name) + "  " + x.Last.Percent + "%" + (x.Last.Charging ? " charging" : ""));
+            foreach (var x in slots) if (x.Active) l.Add(x.RealKind + "  " + (x.Id == "phonelink" ? "(Phone Link phone)" : Diagnostics.Clean(x.RealName ?? x.Name)) + "  " + x.Last.Percent + "%" + (x.Last.Charging ? " charging" : ""));
             return l;
         };
         Refresh();
@@ -619,6 +619,8 @@ class BatteryUI : ApplicationContext
         var ids = new HashSet<string>();
         foreach (var f in generic)
         {
+            // the same earbuds through Windows: only while the detailed (left / right / case) reading isn't working
+            if (buds.Active && string.Equals(f.Name, buds.RealName ?? buds.Name, StringComparison.OrdinalIgnoreCase) && CmfBuds.IsNothing(f.Name)) continue;
             ids.Add(f.Id);
             var s = slots.Find(x => x.Id == f.Id);
             if (s == null)
@@ -666,7 +668,8 @@ class BatteryUI : ApplicationContext
     }
 
     // Gorunen (gizlenmemis) aktif cihazlar
-    List<Slot> ActiveSlots() { return Sorted(slots.FindAll(s => s.Active && !hidden.Contains(s.Id))); }
+    // (the phone is switched on and off by its own setting; a "hidden" mark left by an older version must not hide it)
+    List<Slot> ActiveSlots() { return Sorted(slots.FindAll(s => s.Active && (s.Id == "phonelink" || !hidden.Contains(s.Id)))); }
 
     // ---- user order (Settings > drag): first device = outer ring, top of the panel ----
     List<string> order = LoadOrder();

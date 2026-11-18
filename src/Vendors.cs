@@ -576,7 +576,7 @@ static class Diagnostics
             if (!Native.GetCaps(p, out c)) continue;
             string line = string.Format("{0}:{1:x4}  {2}  {3}  {4:X4}:{5:X4}  {6}/{7}/{8}  {9}",
                 vid, pid, mi < 0 ? "--" : mi.ToString("x2"), col, c.UsagePage, c.Usage,
-                c.InputReportByteLength, c.OutputReportByteLength, c.FeatureReportByteLength, VendorDevices.Product(p) ?? "");
+                c.InputReportByteLength, c.OutputReportByteLength, c.FeatureReportByteLength, Clean(VendorDevices.Product(p) ?? ""));
             if (seen.Add(line)) sb.AppendLine("  " + line);
         }
         sb.AppendLine();
@@ -605,10 +605,21 @@ static class Diagnostics
         {
             var shown = Shown != null ? Shown() : null;
             if (shown != null) foreach (var x in shown) sb.AppendLine("  " + x);
-            else foreach (var f in GenericDevices.Read()) sb.AppendLine("  " + f.Kind + "  " + (f.Id == "phonelink" ? "(Phone Link phone)" : f.Name) + "  " + f.Reading.Percent + "%");
+            else foreach (var f in GenericDevices.Read()) sb.AppendLine("  " + f.Kind + "  " + (f.Id == "phonelink" ? "(Phone Link phone)" : Clean(f.Name)) + "  " + f.Reading.Percent + "%");
         }
         catch { }
         return sb.ToString();
+    }
+
+    // Reports are public. Device names people set themselves often carry their own name
+    // ("Ali's AirPods", "Ali'nin kulaklığı"): drop the part before the apostrophe.
+    public static string Clean(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return name;
+        int a = name.IndexOfAny(new[] { '\'', '’', '`' });
+        if (a < 0) return name;
+        int sp = name.IndexOf(' ', a);
+        return "(name)" + (sp >= 0 ? name.Substring(sp) : "");
     }
 
     // New-issue URL on GitHub with title and body filled in. Browsers and GitHub cap URL length,

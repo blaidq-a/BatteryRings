@@ -47,6 +47,17 @@ static class GenericDevices
         {
             var seen = new HashSet<string>();
             var di = new SP_DEVINFO_DATA { cbSize = Marshal.SizeOf(typeof(SP_DEVINFO_DATA)) };
+            // Bluetooth LE: the device's own node (BTHLE\DEV_<address>) has its real name; its service nodes
+            // (which may also carry the battery value) are named after the service.
+            var leNames = new Dictionary<string, string>();
+            for (int i = 0; SetupDiEnumDeviceInfo(set, i, ref di); i++)
+            {
+                string inst = InstanceId(set, ref di);
+                if (inst == null || !inst.StartsWith(@"BTHLE\DEV_", StringComparison.OrdinalIgnoreCase)) continue;
+                string a = Address(inst);
+                byte[] n = Prop(set, ref di, NameKey);
+                if (a != null && n != null) leNames[a] = Encoding.Unicode.GetString(n).TrimEnd('\0');
+            }
             for (int i = 0; SetupDiEnumDeviceInfo(set, i, ref di); i++)
             {
                 string inst = InstanceId(set, ref di);
@@ -65,12 +76,12 @@ static class GenericDevices
                 else
                 {
                     byte[] n = Prop(set, ref di, NameKey);
-                    name = n != null ? Encoding.Unicode.GetString(n).TrimEnd('\0') : "Bluetooth device";
+                    if (addr == null || !leNames.TryGetValue(addr, out name) || string.IsNullOrEmpty(name))
+                        name = n != null ? Encoding.Unicode.GetString(n).TrimEnd('\0') : "Bluetooth device";
                 }
                 if (addr == null || !seen.Add(addr)) continue;
-                bool skip = false;
-                if (CmfBuds.IsNothing(name)) skip = true;
-                if (skip) continue;
+                // Nothing / CMF earbuds are also read in detail over RFCOMM (left / right / case); the UI hides
+                // this copy while that works and falls back to it when it doesn't.
 
                 list.Add(new Found
                 {
@@ -98,15 +109,18 @@ static class GenericDevices
     // Aygit kimligindeki 12 haneli Bluetooth adresi (BTHENUM\..._001A7DDA7113_... gibi)
     static string Address(string inst)
     {
-        string u = inst.ToUpperInvariant();
+        // Service nodes look like BTHENUM\{0000111E-0000-1000-8000-00805F9B34FB}_..._<ADDRESS>_C00000000:
+        // the service UUID also ends in 12 hex digits, so take the last such group, which is the address.
+        string u = inst.ToUpperInvariant(), found = null;
         for (int i = 0; i + 12 <= u.Length; i++)
         {
             if (i > 0 && IsHex(u[i - 1])) continue;
             int j = i;
             while (j < u.Length && j - i < 12 && IsHex(u[j])) j++;
-            if (j - i == 12 && (j == u.Length || !IsHex(u[j])) && u.Substring(i, 12) != "000000000000") return u.Substring(i, 12);
+            if (j - i == 12 && (j == u.Length || !IsHex(u[j])) && u.Substring(i, 12) != "000000000000" && u.Substring(i, 12) != "00805F9B34FB")
+                found = u.Substring(i, 12);
         }
-        return null;
+        return found;
     }
     static bool IsHex(char c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'); }
 

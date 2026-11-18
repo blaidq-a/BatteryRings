@@ -69,17 +69,21 @@ static class Updater
             wc.DownloadFile(exeUrl, exe);
         }
 
-        // integrity and identity checks before running anything
-        string actual;
-        using (var sha = SHA256.Create())
-        using (var f = File.OpenRead(exe))
-            actual = BitConverter.ToString(sha.ComputeHash(f)).Replace("-", "").ToLowerInvariant();
-        if (expected.Length != 64 || actual != expected) { TryDelete(exe); return "Update failed: checksum mismatch"; }
-        var info = FileVersionInfo.GetVersionInfo(exe);
-        if (info.ProductName != Program.AppName || Norm(new Version(info.FileVersion)) != Norm(latest))
-        { TryDelete(exe); return "Update failed: unexpected file"; }
-
-        Process.Start(new ProcessStartInfo(exe, "/update") { UseShellExecute = false });
+        // integrity and identity checks before running anything. The file stays open (others may only read it)
+        // from the check until it has started, so nothing can swap it in between.
+        using (var f = new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            string actual;
+            using (var sha = SHA256.Create())
+                actual = BitConverter.ToString(sha.ComputeHash(f)).Replace("-", "").ToLowerInvariant();
+            bool ok = expected.Length == 64 && actual == expected;
+            var info = ok ? FileVersionInfo.GetVersionInfo(exe) : null;
+            if (!ok) { f.Dispose(); TryDelete(exe); return "Update failed: checksum mismatch"; }
+            Version fv;
+            if (info.ProductName != Program.AppName || !Version.TryParse(info.FileVersion ?? "", out fv) || Norm(fv) != Norm(latest))
+            { f.Dispose(); TryDelete(exe); return "Update failed: unexpected file"; }
+            Process.Start(new ProcessStartInfo(exe, "/update") { UseShellExecute = false });
+        }
         return "Installing v" + Short(latest) + "…";
     }
 

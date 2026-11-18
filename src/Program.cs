@@ -15,8 +15,8 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("BatteryRings")]
 [assembly: AssemblyCompany("BatteryRings")]
 [assembly: AssemblyCopyright("GPL-3.0")]
-[assembly: AssemblyVersion("1.6.0.0")]
-[assembly: AssemblyFileVersion("1.6.0.0")]
+[assembly: AssemblyVersion("1.7.0.0")]
+[assembly: AssemblyFileVersion("1.7.0.0")]
 // Guvenlik: P/Invoke DLL'leri yalnizca System32'den yuklenir (exe'nin yanina konan sahte DLL calismaz)
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 
