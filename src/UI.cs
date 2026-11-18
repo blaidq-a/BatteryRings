@@ -620,7 +620,8 @@ class BatteryUI : ApplicationContext
         foreach (var f in generic)
         {
             // the same earbuds through Windows: only while the detailed (left / right / case) reading isn't working
-            if (buds.Active && string.Equals(f.Name, buds.RealName ?? buds.Name, StringComparison.OrdinalIgnoreCase) && CmfBuds.IsNothing(f.Name)) continue;
+            // (compare with the reader's current name: the slot's RealName is only updated after this, so it lags a cycle)
+            if (buds.Active && CmfBuds.IsNothing(f.Name) && string.Equals(f.Name, dBuds.DeviceName, StringComparison.OrdinalIgnoreCase)) continue;
             ids.Add(f.Id);
             var s = slots.Find(x => x.Id == f.Id);
             if (s == null)
