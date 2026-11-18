@@ -27,7 +27,7 @@ Hover over (or click) the icon to see every device in detail.
 |---|---|---|
 | Razer | Barracuda X (2022) headset on its 2.4 GHz dongle, with charging state | ✅ |
 | Razer | Wireless mice and keyboards (dongle or cable) | – |
-| ATK / Compx | ATK A9 Ultimate: a steady percentage computed from the battery voltage (curve measured on this model). Other ATK models and other mice on Compx 2.4 GHz dongles (VID 373B; on the cable also VID 3554, e.g. VXE R1 SE+) show the percentage the mouse reports. The dongle does not tell the mouse's name, so it is learned the first time the mouse is plugged in by cable (with its dongle in the PC, the name is kept per dongle, so two such mice keep their own names). If it is detected wrong, pick the *Model* with the pencil | ✅ |
+| ATK / Compx | ATK A9 Ultimate: a steady percentage computed from the battery voltage (curve measured on this model). Other ATK models and other mice on Compx 2.4 GHz dongles (VID 373B; on the cable also VID 3554, e.g. VXE R1 SE+) show the percentage the mouse reports. The dongle does not tell the mouse's name, so it is learned the first time the mouse is plugged in by cable (with its dongle in the PC, the name is kept per dongle, so two such mice keep their own names). If it is detected wrong, rename it with the pencil: the ATK A9 Ultimate curve is used when the name contains "A9 Ultimate" | ✅ |
 | Nothing / CMF | CMF Buds Pro 2: left, right and case separately | ✅ |
 | Nothing / CMF | Nothing Ear (1) / (2) / (a) / (3) / (open) / (stick), other CMF Buds, Nothing and CMF headphones (same protocol) | – |
 | Apple | AirPods, AirPods Pro, AirPods Max and Beats: left, right and case in 10% steps, read from the Bluetooth LE broadcast while they are connected to this PC | – |
@@ -56,8 +56,8 @@ Click the gear in the panel:
 - Open the panel when hovering the icon (otherwise click it)
 - Theme: Default (follows Windows), Sakura, Aqua, Midnight, Forest, Sunset
 - Device order: drag a device up or down; the top one is the outer ring
-- Rename a device or change its icon (pencil); for Compx/ATK mice also pick the model if it was detected wrong
-- Footer buttons: check for updates, report a problem, quit
+- Rename a device or change its icon (pencil)
+- Footer buttons: check for updates, report a problem, quit; the author name and the version link to GitHub
 - Low battery alerts
 - Install updates automatically, and a **Check for updates** button
 - Phone battery: the *Phone (Phone Link)* switch under Devices, off by default (shown when Phone Link is installed)

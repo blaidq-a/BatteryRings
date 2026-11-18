@@ -481,9 +481,11 @@ class AtkMouse : Device
         }
         // The voltage curve and charge model were measured on an ATK A9 Ultimate (4.35 V LiHV cell).
         // Other models may use a different battery, so they keep the firmware's own percentage.
-        // The user can pick the model by hand (Settings > pencil > Model).
-        int m = Model;
-        IsAtk = m == 1 || (m == 0 && DeviceName.IndexOf("A9 Ultimate", StringComparison.OrdinalIgnoreCase) >= 0);
+        // A name the user gave the mouse (Settings > pencil) wins: renaming it to "ATK A9 Ultimate" turns the
+        // curve on, renaming it to anything else turns it off.
+        string own; Kind ownKind;
+        string effective = DeviceOverrides.Get("atk-mouse", out own, out ownKind) && !string.IsNullOrEmpty(own) ? own : DeviceName;
+        IsAtk = effective.IndexOf("A9 Ultimate", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     // The dongle's own name is "Wireless mouse 8k dongle-L", but right after it is plugged in or Windows starts
@@ -506,19 +508,6 @@ class AtkMouse : Device
     {
         foreach (var v in k.GetValueNames()) if (v.StartsWith("MouseName_", StringComparison.OrdinalIgnoreCase)) return true;
         return false;
-    }
-
-    // Which Compx mouse this is, chosen by the user (Settings > pencil > Model). Index into Models:
-    // 0 detect from the name, 1 ATK A9 Ultimate (calibrated voltage curve), others: the mouse's own percentage.
-    public static readonly string[] Models = { "Detect automatically", "ATK A9 Ultimate", "Other ATK mouse", "VXE / VGN mouse", "Other mouse" };
-    public static int Model
-    {
-        get
-        {
-            try { using (var k = Registry.CurrentUser.OpenSubKey(StateKey)) { object v = k == null ? null : k.GetValue("MouseModel"); return v is int && (int)v >= 0 && (int)v < Models.Length ? (int)v : 0; } }
-            catch { return 0; }
-        }
-        set { try { using (var k = Registry.CurrentUser.CreateSubKey(StateKey)) k.SetValue("MouseModel", value, RegistryValueKind.DWord); } catch { } }
     }
 
     // Compx-based mice show up under more than one vendor id: the 2.4 GHz dongle as 373B (Compx),

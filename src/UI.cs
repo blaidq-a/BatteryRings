@@ -445,7 +445,7 @@ class BatteryUI : ApplicationContext
         }
         if (LayeredWindow.DumpDir != null)
         {
-            var t = new System.Windows.Forms.Timer { Interval = 7000 };
+            var t = new System.Windows.Forms.Timer { Interval = 10000 };
             t.Tick += delegate
             {
                 t.Stop(); phase = 0.5f;
@@ -562,13 +562,17 @@ class BatteryUI : ApplicationContext
         if (Interlocked.Exchange(ref busy, 1) == 1) return;
         ThreadPool.QueueUserWorkItem(delegate
         {
-            Reading h = Safe(dHead.Read), m = Safe(dMouse.Read), b = Safe(dBuds.Read);
+            // USB devices answer in milliseconds. Bluetooth reads (earbuds over RFCOMM, the generic scan) can hang for
+            // a minute when the radio is busy, so they run on their own threads and the panel uses their last result.
+            Reading h = Safe(dHead.Read), m = Safe(dMouse.Read);
+            Reading b = budsRead.Get(() => Safe(dBuds.Read), Kick) ?? new Reading();
             List<Found> gen = null;
-            if ((DateTime.Now - genericAt).TotalSeconds >= 9)
+            if ((DateTime.Now - genericAt).TotalSeconds >= 9 && !genericRead.Running)
             {
-                try { gen = GenericDevices.Read(); } catch { gen = new List<Found>(); }
                 genericAt = DateTime.Now;
+                genericRead.Start(() => { try { return GenericDevices.Read(); } catch { return new List<Found>(); } }, Kick);
             }
+            gen = genericRead.Take();
             invoker.BeginInvoke((Action)delegate
             {
                 Interlocked.Exchange(ref busy, 0);
@@ -577,6 +581,7 @@ class BatteryUI : ApplicationContext
                 mouse.Name = dMouse.DeviceName; mouse.Kind = Kind.Mouse;
                 Apply(head, h); Apply(mouse, m); Apply(buds, b);
                 if (gen != null) generic = gen;
+                if (!Settings.PhoneLink) generic.RemoveAll(x => x.Id == "phonelink"); // switched off while a scan was running
                 ApplyGeneric();
                 ApplyOverrides();
                 DrawIcon();
@@ -586,6 +591,9 @@ class BatteryUI : ApplicationContext
     }
 
     static Reading Safe(Func<Reading> f) { try { return f(); } catch { return new Reading(); } }
+
+    readonly Background<Reading> budsRead = new Background<Reading>(4);
+    readonly Background<List<Found>> genericRead = new Background<List<Found>>(0);
 
     void Apply(Slot d, Reading r)
     {
@@ -649,7 +657,6 @@ class BatteryUI : ApplicationContext
             {
                 if (dlg.Reset) DeviceOverrides.Clear(s.Id);
                 else DeviceOverrides.Set(s.Id, dlg.NameText == s.RealName ? "" : dlg.NameText, dlg.Chosen);
-                if (dlg.ModelChoice >= 0) AtkMouse.Model = dlg.Reset ? 0 : dlg.ModelChoice;
                 s.Name = s.RealName; s.Kind = s.RealKind;
                 ApplyOverrides();
                 DrawIcon();
@@ -1000,7 +1007,7 @@ class BatteryUI : ApplicationContext
 
     static bool Multi(Slot s) { return s.Last.Parts != null && s.Last.Parts.Count > 0; }
 
-    const float PW = 300, PPad = 16, HeadH = 46, RowH = 52, MultiRowH = 80, SetRowH = 40, ThemeRowH = 40;
+    const float PW = 300, PPad = 16, HeadH = 46, RowH = 52, MultiRowH = 80, SetRowH = 36, ThemeRowH = 38;
 
     void DrawPanel()
     {
@@ -1010,7 +1017,7 @@ class BatteryUI : ApplicationContext
         bool empty = !settingsView && devs.Count == 0;
 
         float hh = HeadH;
-        if (settingsView) hh += SetRowH * 4 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count + (PhoneOffRow ? 1 : 0)) * SetRowH + 56;
+        if (settingsView) hh += 20 + SetRowH * 4 + 30 + ThemeRowH + 30 + Math.Max(1, devs.Count + (PhoneOffRow ? 1 : 0)) * SetRowH + 56;
         else if (empty) hh += 64;
         else foreach (var s in devs) hh += Multi(s) ? MultiRowH : RowH;
         hh += 8;
@@ -1091,7 +1098,7 @@ class BatteryUI : ApplicationContext
         {
             float L = PPad * k, R = W - PPad * k, y = HeadH * k;
             float gs = 16 * k, tx = L + gs + 12 * k;
-            if (devs.Count == 0 && !PhoneOffRow)
+            if (devs.Count == 0)
             {
                 using (var br = new SolidBrush(fg)) g.DrawString("No devices found", fName, br, L, y + 6 * k, sf);
                 using (var br = new SolidBrush(sub)) g.DrawString("Turn on or connect a wireless device", fSmall, br, L, y + 30 * k, sf);
@@ -1142,6 +1149,8 @@ class BatteryUI : ApplicationContext
         using (var fSmall = new Font("Segoe UI Semibold", 11.5f * k, GraphicsUnit.Pixel))
         {
             float L = PPad * k, R = W - PPad * k, y = HeadH * k;
+            using (var br = new SolidBrush(sub)) g.DrawString("GENERAL", fSmall, br, L, y, sf);
+            y += 20 * k;
             Toggle(g, f, L, R, ref y, null, "Start with Windows", IsAutoStart(), delegate { SetAutoStart(!IsAutoStart()); });
             Toggle(g, f, L, R, ref y, null, "Open when hovering the icon", Settings.HoverOpen, delegate { Settings.HoverOpen = !Settings.HoverOpen; });
             Toggle(g, f, L, R, ref y, null, "Low battery alerts", Settings.Alerts, delegate { Settings.Alerts = !Settings.Alerts; });
@@ -1161,13 +1170,9 @@ class BatteryUI : ApplicationContext
             using (var br = new SolidBrush(sub))
             {
                 g.DrawString("DEVICES", fSmall, br, L, y, sf);
-                string hint = "drag to reorder";
-                using (var fh = new Font("Segoe UI", 11.5f * k, GraphicsUnit.Pixel))
-                using (var bh = new SolidBrush(Look.A(fg, Look.Light ? 120 : 110)))
-                    g.DrawString(hint, fh, bh, R - MeasureW(g, fh, hint), y - 1 * k, sf);
             }
             y += 20 * k;
-            if (devs.Count == 0)
+            if (devs.Count == 0 && !PhoneOffRow)
             {
                 using (var br = new SolidBrush(sub)) g.DrawString("No devices connected", f, br, L, y + 10 * k, sf);
                 y += SetRowH * k;
@@ -1198,7 +1203,13 @@ class BatteryUI : ApplicationContext
             }
             // phone battery is opt-in: offered as a switched-off device row when Phone Link is installed
             if (PhoneOffRow)
-                Toggle(g, f, L, R, ref y, phoneOffSlot, "Phone (Phone Link)", false, delegate { SetPhoneLink(true); }, false);
+            {
+                string own; Kind ok;
+                bool has = DeviceOverrides.Get("phonelink", out own, out ok);
+                phoneOffSlot.Name = phoneOffSlot.RealName = has && !string.IsNullOrEmpty(own) ? own : "Phone (Phone Link)";
+                phoneOffSlot.Kind = has ? ok : Kind.Phone;
+                Toggle(g, f, L, R, ref y, phoneOffSlot, phoneOffSlot.Name, false, delegate { SetPhoneLink(true); }, false);
+            }
             if (dragging && devRows.Count > 1)
             {
                 // where the dragged device will land
@@ -1226,19 +1237,46 @@ class BatteryUI : ApplicationContext
             string left = footerLabel                                   // name of the hovered button
                 ?? (fresh(reportStatus, lastRepAt) ? reportStatus : null)
                 ?? (fresh(Updater.Status, lastUpdAt) ? Updater.Status : null)
-                ?? "by blaidq  ·  " + ver;
+                ?? null;
             using (var fs = new Font("Segoe UI", 12.5f * k, GraphicsUnit.Pixel))
             {
-                float maxW = bx - L - 6 * k;
-                string t = left;
-                while (t.Length > 4 && MeasureW(g, fs, t) > maxW) t = t.Substring(0, t.Length - 2);
-                if (t != left) t = t.TrimEnd() + "…";
-                using (var br = new SolidBrush(footerLabel != null ? fg : sub)) g.DrawString(t, fs, br, L, y + 7 * k, sf);
+                if (left == null)
+                {
+                    // credit: "blaidq" opens the author's GitHub, the version opens the app's GitHub page
+                    // (GenericTypographic ignores trailing spaces when measuring, so gaps are added explicitly)
+                    float x = L, ty = y + 7 * k, space = MeasureW(g, fs, "a a") - MeasureW(g, fs, "aa");
+                    using (var br = new SolidBrush(sub)) g.DrawString("by", fs, br, x, ty, sf);
+                    x += MeasureW(g, fs, "by") + space;
+                    x = FooterLink(g, fs, x, ty, "blaidq", "https://github.com/blaidq-a", sub) + space * 2;
+                    using (var br = new SolidBrush(sub)) g.DrawString("·", fs, br, x, ty, sf);
+                    x += MeasureW(g, fs, "·") + space * 2;
+                    FooterLink(g, fs, x, ty, ver, "https://github.com/blaidq-a/BatteryRings", sub);
+                }
+                else
+                {
+                    float maxW = bx - L - 6 * k;
+                    string t = left;
+                    while (t.Length > 4 && MeasureW(g, fs, t) > maxW) t = t.Substring(0, t.Length - 2);
+                    if (t != left) t = t.TrimEnd() + "…";
+                    using (var br = new SolidBrush(footerLabel != null ? fg : sub)) g.DrawString(t, fs, br, L, y + 7 * k, sf);
+                }
             }
         }
     }
 
-    readonly Slot phoneOffSlot = new Slot { Id = "phonelink-off", Name = "Phone (Phone Link)", Kind = Kind.Phone };
+    // Clickable footer text: brighter and underlined on hover, opens the url in the browser. Returns the right edge.
+    float FooterLink(Graphics g, Font fs, float x, float y, string text, string url, Color normal)
+    {
+        float k = Look.K, w = MeasureW(g, fs, text);
+        int idx = hits.Count;
+        hits.Add(new Hit { R = new RectangleF(x - 2 * k, y - 4 * k, w + 4 * k, 24 * k), A = delegate { try { System.Diagnostics.Process.Start(url); } catch { } } });
+        bool h = hot == idx;
+        using (var br = new SolidBrush(h ? Look.Fg : normal)) g.DrawString(text, fs, br, x, y, StringFormat.GenericTypographic);
+        if (h) using (var pen = new Pen(Look.A(Look.Fg, 160), 1f * k)) g.DrawLine(pen, x, y + 16 * k, x + w, y + 16 * k);
+        return x + w;
+    }
+
+    readonly Slot phoneOffSlot = new Slot { Id = "phonelink", Name = "Phone (Phone Link)", Kind = Kind.Phone };
     bool PhoneOffRow { get { return !Settings.PhoneLink && PhoneLink.Installed; } }
 
     void SetPhoneLink(bool on)
@@ -1325,22 +1363,23 @@ class BatteryUI : ApplicationContext
         return i;
     }
 
-    void Toggle(Graphics g, Font f, float L, float R, ref float y, Slot dev, string label, bool on, Action a, bool editable = true)
+    void Toggle(Graphics g, Font f, float L, float R, ref float y, Slot dev, string label, bool on, Action a, bool draggable = true)
     {
         float k = Look.K;
         var row = new RectangleF(L - 8 * k, y, R - L + 16 * k, SetRowH * k);
+        float c = y + SetRowH * k / 2; // vertical centre of the row
         int penHit = -1;
         RectangleF pr = RectangleF.Empty;
-        if (dev != null && editable)
+        if (dev != null)
         {
             // pencil: rename / change icon (added first so it wins over the row's click area)
-            pr = new RectangleF(R - 40 * k - 36 * k, y + 7 * k, 26 * k, 26 * k);
+            pr = new RectangleF(R - 40 * k - 36 * k, c - 13 * k, 26 * k, 26 * k);
             penHit = hits.Count;
             var dv = dev;
             hits.Add(new Hit { R = pr, A = delegate { EditDevice(dv); } });
         }
         // only the switch itself toggles; clicking the name does nothing (and starts a drag for devices)
-        var swHit = new RectangleF(R - 40 * k - 6 * k, y + 4 * k, 52 * k, SetRowH * k - 8 * k);
+        var swHit = new RectangleF(R - 40 * k - 6 * k, y + 3 * k, 52 * k, SetRowH * k - 6 * k);
         int idx = hits.Count;
         hits.Add(new Hit { R = swHit, A = a });
         if (hot == idx || (penHit >= 0 && hot == penHit))
@@ -1358,18 +1397,18 @@ class BatteryUI : ApplicationContext
         if (dev != null)
         {
             // grip: the row can be dragged up or down
-            if (editable) Look.Icon(g, "\uE700", new RectangleF(L - 4 * k, y + 13 * k, 14 * k, 14 * k), 10 * k, Look.A(Look.Fg, hot == idx ? 170 : 90));
-            Look.Glyph(g, dev.Kind, new RectangleF(L + 16 * k, y + 12 * k, 16 * k, 16 * k), Look.A(Look.Fg, editable ? 200 : 120));
+            if (draggable) Look.Icon(g, "\uE700", new RectangleF(L - 4 * k, c - 7 * k, 14 * k, 14 * k), 10 * k, Look.A(Look.Fg, hot == idx ? 170 : 90));
+            Look.Glyph(g, dev.Kind, new RectangleF(L + 16 * k, c - 8 * k, 16 * k, 16 * k), Look.A(Look.Fg, 200));
             tx += 44 * k;
         }
         string t = label;
         float maxW = R - tx - (dev != null ? 86 : 52) * k;
         while (t.Length > 4 && g.MeasureString(t, f, PointF.Empty, StringFormat.GenericTypographic).Width > maxW) t = t.Substring(0, t.Length - 2);
         if (t != label) t = t.TrimEnd() + "…";
-        using (var br = new SolidBrush(editable ? Look.Fg : Look.A(Look.Fg, 150))) g.DrawString(t, f, br, tx, y + 11 * k, StringFormat.GenericTypographic);
+        using (var br = new SolidBrush(Look.Fg)) g.DrawString(t, f, br, tx, c - 9 * k, StringFormat.GenericTypographic);
 
         // Windows 11 style switch
-        var sw = new RectangleF(R - 40 * k, y + 10 * k, 40 * k, 20 * k);
+        var sw = new RectangleF(R - 40 * k, c - 10 * k, 40 * k, 20 * k);
         using (var p = Look.Round(sw, 10 * k))
         {
             if (on) using (var br = new SolidBrush(Look.Accent)) g.FillPath(br, p);
@@ -1538,9 +1577,6 @@ class DeviceEditor : Form
     readonly Slot slot;
     Color bg, fg;
     int hover = -1;
-    // Compx mice only: which mouse this is. Decides how the battery percentage is worked out (AtkMouse.Model)
-    readonly ComboBox model;
-    public int ModelChoice { get { return model != null ? model.SelectedIndex : -1; } }
     const int Inner = 368; // content width
 
     public DeviceEditor(Slot s)
@@ -1558,8 +1594,7 @@ class DeviceEditor : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = bg; ForeColor = fg;
         Font = new Font("Segoe UI", 10f);
-        bool compx = s.Id == "atk-mouse";
-        int extra = compx ? 58 : 0;
+        int extra = 0;
         ClientSize = new Size((int)((Inner + 32) * k), (int)((232 + extra) * k));
         DoubleBuffered = true;
 
@@ -1580,20 +1615,6 @@ class DeviceEditor : Form
         AcceptButton = save; CancelButton = cancel;
         Controls.AddRange(new Control[] { lbl, box, lbl2, save, cancel, reset });
 
-        if (compx)
-        {
-            // If the mouse is detected wrong (e.g. two mice share one name), the user picks it here
-            var lbl3 = new Label { Text = "Model", AutoSize = true, Location = new Point((int)(16 * k), (int)(182 * k)), ForeColor = Look.A(fg, 190) };
-            model = new ComboBox
-            {
-                DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat,
-                Location = new Point((int)(16 * k), (int)(204 * k)), Width = (int)(Inner * k),
-                BackColor = Blend(bg, fg, 0.08f), ForeColor = fg
-            };
-            model.Items.AddRange(AtkMouse.Models);
-            model.SelectedIndex = AtkMouse.Model;
-            Controls.AddRange(new Control[] { lbl3, model });
-        }
 
         MouseMove += (o, e) => { int h = HitIcon(e.Location); if (h != hover) { hover = h; Invalidate(); } Cursor = h >= 0 ? Cursors.Hand : Cursors.Default; };
         MouseClick += (o, e) => { int h = HitIcon(e.Location); if (h >= 0) { Chosen = Kinds[h]; Invalidate(); } };
@@ -1730,4 +1751,45 @@ class ReportDialog : Form
         try { DwmSetWindowAttribute(Handle, 20, ref dark, 4); } catch { }
     }
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
+}
+
+// Runs one slow read at a time on its own thread and keeps the latest result,
+// so a hanging Bluetooth call never holds up the other devices.
+class Background<T> where T : class
+{
+    readonly object lk = new object();
+    T last, fresh;
+    volatile bool running;
+    DateTime started = DateTime.MinValue;
+    readonly TimeSpan gap;
+    public Background(int minSeconds) { gap = TimeSpan.FromSeconds(minSeconds); }
+    public bool Running { get { return running; } }
+
+    // last result; starts a new read if none is running
+    public T Get(Func<T> read, Action done)
+    {
+        Start(read, done);
+        lock (lk) return last;
+    }
+
+    public void Start(Func<T> read, Action done)
+    {
+        lock (lk)
+        {
+            if (running || DateTime.Now - started < gap) return; // one at a time, and not back to back
+            running = true; started = DateTime.Now;
+        }
+        var t = new Thread(() =>
+        {
+            T r = null;
+            try { r = read(); } catch { }
+            lock (lk) { last = r; fresh = r; running = false; }
+            if (done != null) try { done(); } catch { }
+        });
+        t.IsBackground = true;
+        t.Start();
+    }
+
+    // the result of a read that finished since the last call, or null
+    public T Take() { lock (lk) { var r = fresh; fresh = null; return r; } }
 }
