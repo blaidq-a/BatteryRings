@@ -439,23 +439,86 @@ class AtkMouse : Device
             n = VendorDevices.Product(path) ?? "";
             names[path] = n;
         }
-        bool generic = n.Length == 0 || n.IndexOf("dongle", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("receiver", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) >= 0;
+        bool generic = IsDongleName(n);
+        if (n.Length == 0) names.Remove(path); // nothing read yet: ask again next time
         if (!generic)
         {
-            if (DeviceName != n)
-                try { using (var k = Registry.CurrentUser.CreateSubKey(StateKey)) k.SetValue("MouseName", n); } catch { }
+            // On the cable: remember the name, both as the last cable name and for every dongle plugged in
+            // right now (the mouse usually charges with its dongle in the PC). With two Compx mice each dongle
+            // then keeps its own mouse's name.
+            try
+            {
+                using (var k = Registry.CurrentUser.CreateSubKey(StateKey))
+                {
+                    if (DeviceName != n) k.SetValue("MouseName", n);
+                    foreach (var p in CompxPaths())
+                    {
+                        string pn;
+                        if (!names.TryGetValue(p, out pn)) { pn = VendorDevices.Product(p) ?? ""; if (pn.Length > 0) names[p] = pn; }
+                        if (pn.Length > 0 && IsDongleName(pn) && (k.GetValue("MouseName_" + DongleKey(p)) as string) != n)
+                            k.SetValue("MouseName_" + DongleKey(p), n);
+                    }
+                }
+            }
+            catch { }
             DeviceName = n;
         }
         else
         {
+            // On the dongle: the name learned for this dongle; older versions kept a single name for all
             string saved = null;
-            try { using (var k = Registry.CurrentUser.OpenSubKey(StateKey)) if (k != null) saved = k.GetValue("MouseName") as string; } catch { }
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(StateKey))
+                    if (k != null)
+                    {
+                        saved = k.GetValue("MouseName_" + DongleKey(path)) as string;
+                        if (string.IsNullOrEmpty(saved) && !HasDongleNames(k)) saved = k.GetValue("MouseName") as string;
+                    }
+            }
+            catch { }
             DeviceName = string.IsNullOrEmpty(saved) ? "Wireless mouse" : saved;
         }
         // The voltage curve and charge model were measured on an ATK A9 Ultimate (4.35 V LiHV cell).
         // Other models may use a different battery, so they keep the firmware's own percentage.
-        IsAtk = DeviceName.IndexOf("A9 Ultimate", StringComparison.OrdinalIgnoreCase) >= 0;
+        // The user can pick the model by hand (Settings > pencil > Model).
+        int m = Model;
+        IsAtk = m == 1 || (m == 0 && DeviceName.IndexOf("A9 Ultimate", StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
+    // The dongle's own name is "Wireless mouse 8k dongle-L", but right after it is plugged in or Windows starts
+    // it can report just "Wireless mouse". Treat that as a dongle name too, or the saved cable name is lost.
+    static bool IsDongleName(string n)
+    {
+        return n.Length == 0 || n.IndexOf("dongle", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("receiver", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.Equals("Wireless mouse", StringComparison.OrdinalIgnoreCase) || n.Equals("Compx", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // "373b_11d9": vendor and product id of a dongle, from its HID path
+    static string DongleKey(string path)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(path, @"vid_([0-9a-f]{4})&pid_([0-9a-f]{4})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? (m.Groups[1].Value + "_" + m.Groups[2].Value).ToLowerInvariant() : "unknown";
+    }
+
+    static bool HasDongleNames(RegistryKey k)
+    {
+        foreach (var v in k.GetValueNames()) if (v.StartsWith("MouseName_", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    // Which Compx mouse this is, chosen by the user (Settings > pencil > Model). Index into Models:
+    // 0 detect from the name, 1 ATK A9 Ultimate (calibrated voltage curve), others: the mouse's own percentage.
+    public static readonly string[] Models = { "Detect automatically", "ATK A9 Ultimate", "Other ATK mouse", "VXE / VGN mouse", "Other mouse" };
+    public static int Model
+    {
+        get
+        {
+            try { using (var k = Registry.CurrentUser.OpenSubKey(StateKey)) { object v = k == null ? null : k.GetValue("MouseModel"); return v is int && (int)v >= 0 && (int)v < Models.Length ? (int)v : 0; } }
+            catch { return 0; }
+        }
+        set { try { using (var k = Registry.CurrentUser.CreateSubKey(StateKey)) k.SetValue("MouseModel", value, RegistryValueKind.DWord); } catch { } }
     }
 
     // Compx-based mice show up under more than one vendor id: the 2.4 GHz dongle as 373B (Compx),
@@ -495,10 +558,8 @@ class AtkMouse : Device
         foreach (var p in CompxPaths())
         {
             string n;
-            if (!names.TryGetValue(p, out n)) { n = VendorDevices.Product(p) ?? ""; names[p] = n; }
-            if (n.Length > 0 && n.IndexOf("dongle", StringComparison.OrdinalIgnoreCase) < 0
-                && n.IndexOf("receiver", StringComparison.OrdinalIgnoreCase) < 0 && n.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0)
-                return true;
+            if (!names.TryGetValue(p, out n)) { n = VendorDevices.Product(p) ?? ""; if (n.Length > 0) names[p] = n; }
+            if (!IsDongleName(n)) return true;
         }
         return false;
     }

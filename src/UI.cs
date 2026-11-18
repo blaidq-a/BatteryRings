@@ -456,7 +456,7 @@ class BatteryUI : ApplicationContext
                 try { File.Copy(Path.Combine(dd, "panel.png"), Path.Combine(dd, "panel_settings.png"), true); } catch { }
                 try
                 {
-                    using (var dlg = new DeviceEditor(head))
+                    using (var dlg = new DeviceEditor(mouse))
                     {
                         dlg.StartPosition = FormStartPosition.Manual; dlg.Location = new Point(-2000, -2000);
                         dlg.Show(); dlg.Refresh();
@@ -649,6 +649,7 @@ class BatteryUI : ApplicationContext
             {
                 if (dlg.Reset) DeviceOverrides.Clear(s.Id);
                 else DeviceOverrides.Set(s.Id, dlg.NameText == s.RealName ? "" : dlg.NameText, dlg.Chosen);
+                if (dlg.ModelChoice >= 0) AtkMouse.Model = dlg.Reset ? 0 : dlg.ModelChoice;
                 s.Name = s.RealName; s.Kind = s.RealKind;
                 ApplyOverrides();
                 DrawIcon();
@@ -1537,6 +1538,10 @@ class DeviceEditor : Form
     readonly Slot slot;
     Color bg, fg;
     int hover = -1;
+    // Compx mice only: which mouse this is. Decides how the battery percentage is worked out (AtkMouse.Model)
+    readonly ComboBox model;
+    public int ModelChoice { get { return model != null ? model.SelectedIndex : -1; } }
+    const int Inner = 368; // content width
 
     public DeviceEditor(Slot s)
     {
@@ -1553,25 +1558,42 @@ class DeviceEditor : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = bg; ForeColor = fg;
         Font = new Font("Segoe UI", 10f);
-        ClientSize = new Size((int)(360 * k), (int)(232 * k));
+        bool compx = s.Id == "atk-mouse";
+        int extra = compx ? 58 : 0;
+        ClientSize = new Size((int)((Inner + 32) * k), (int)((232 + extra) * k));
         DoubleBuffered = true;
 
         var lbl = new Label { Text = "Name", AutoSize = true, Location = new Point((int)(16 * k), (int)(14 * k)), ForeColor = Look.A(fg, 190) };
         box.Text = s.Name;
         box.Location = new Point((int)(16 * k), (int)(36 * k));
-        box.Width = (int)(328 * k);
+        box.Width = (int)(Inner * k);
         box.MaxLength = 40;
         box.BackColor = Blend(bg, fg, 0.08f); box.ForeColor = fg; box.BorderStyle = BorderStyle.FixedSingle;
         var lbl2 = new Label { Text = "Icon", AutoSize = true, Location = new Point((int)(16 * k), (int)(74 * k)), ForeColor = Look.A(fg, 190) };
 
-        var save = Btn("Save", (int)(256 * k), true);
+        var save = Btn("Save", (int)((Inner - 72) * k), true, extra);
         save.Click += delegate { DialogResult = DialogResult.OK; };
-        var cancel = Btn("Cancel", (int)(164 * k), false);
+        var cancel = Btn("Cancel", (int)((Inner - 164) * k), false, extra);
         cancel.Click += delegate { DialogResult = DialogResult.Cancel; };
-        var reset = Btn("Reset", (int)(16 * k), false);
+        var reset = Btn("Reset", (int)(16 * k), false, extra);
         reset.Click += delegate { Reset = true; DialogResult = DialogResult.OK; };
         AcceptButton = save; CancelButton = cancel;
         Controls.AddRange(new Control[] { lbl, box, lbl2, save, cancel, reset });
+
+        if (compx)
+        {
+            // If the mouse is detected wrong (e.g. two mice share one name), the user picks it here
+            var lbl3 = new Label { Text = "Model", AutoSize = true, Location = new Point((int)(16 * k), (int)(182 * k)), ForeColor = Look.A(fg, 190) };
+            model = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat,
+                Location = new Point((int)(16 * k), (int)(204 * k)), Width = (int)(Inner * k),
+                BackColor = Blend(bg, fg, 0.08f), ForeColor = fg
+            };
+            model.Items.AddRange(AtkMouse.Models);
+            model.SelectedIndex = AtkMouse.Model;
+            Controls.AddRange(new Control[] { lbl3, model });
+        }
 
         MouseMove += (o, e) => { int h = HitIcon(e.Location); if (h != hover) { hover = h; Invalidate(); } Cursor = h >= 0 ? Cursors.Hand : Cursors.Default; };
         MouseClick += (o, e) => { int h = HitIcon(e.Location); if (h >= 0) { Chosen = Kinds[h]; Invalidate(); } };
@@ -1586,12 +1608,12 @@ class DeviceEditor : Form
     }
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
 
-    Button Btn(string t, int x, bool primary)
+    Button Btn(string t, int x, bool primary, int extra)
     {
         float k = Look.K;
         var b = new Button
         {
-            Text = t, FlatStyle = FlatStyle.Flat, Location = new Point(x, (int)(186 * k)), Size = new Size((int)(88 * k), (int)(32 * k)),
+            Text = t, FlatStyle = FlatStyle.Flat, Location = new Point(x, (int)((186 + extra) * k)), Size = new Size((int)(88 * k), (int)(32 * k)),
             BackColor = primary ? Look.Accent : Blend(bg, fg, 0.10f), ForeColor = primary ? Color.White : fg, UseVisualStyleBackColor = false
         };
         b.FlatAppearance.BorderSize = 0;
@@ -1605,7 +1627,7 @@ class DeviceEditor : Form
 
     RectangleF IconRect(int i)
     {
-        float k = Look.K, w = 52 * k, gap = (328 * k - 6 * w) / 5;
+        float k = Look.K, w = 50 * k, gap = (Inner * k - Kinds.Length * w) / (Kinds.Length - 1);
         return new RectangleF(16 * k + i * (w + gap), 96 * k, w, 72 * k);
     }
 
